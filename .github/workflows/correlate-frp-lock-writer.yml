@@ -58,7 +58,7 @@ jobs:
           Path('report/HONOR70_FRP_AND_LOCK_WRITER_CORRELATION.txt').write_text(out+'\n')
           print('SUMMARY_BYTES',len(out),'GHIDRA_BYTES',len(gh),'SYSTEM_BYTES',len(service))
           for p in report:
-              if p.startswith('=='):
+              if p.lstrip().startswith('=='):
                   print(p[:5000])
           PY
       - name: Upload compact correlation report
