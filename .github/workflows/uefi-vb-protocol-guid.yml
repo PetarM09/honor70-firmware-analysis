@@ -1,0 +1,48 @@
+name: Honor70 Fingerprint Verified Boot UEFI Protocol
+on:
+  push:
+    paths:
+      - '.github/workflows/uefi-vb-protocol-guid.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Obtain verified ARM64 LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages pefile
+      - name: Identify protocol GUIDs from Ghidra source addresses
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,uuid,pefile,struct
+          b=next(Path('src').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=b,fast_load=True)
+          lines=['LINUXLOADER_SHA256 '+hashlib.sha256(b).hexdigest()]
+          for rva,name in [(0x1b390c,'VerifiedBoot protocol used by FUN_00037ac0'),
+                           (0x1b397c,'NandPartiGuid used by FUN_00037bd0'),
+                           (0x1b380c,'Partition EFI GUID candidate')]:
+            try:
+              off=pe.get_offset_from_rva(rva)
+              raw=b[off:off+16]
+              lines.append('GUID '+name+' RVA=0x%x FILE_OFFSET=0x%x HEX=%s UUID=%s'%(rva,off,raw.hex(),str(uuid.UUID(bytes_le=raw))))
+            except Exception as e:
+              lines.append('GUID ERROR '+name+': '+str(e))
+          Path('report/UEFI_VBRW_PROTOCOL_GUIDS.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+      - name: Upload fingerprints
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VBRW_PROTOCOL_GUIDS
+          path: report/
+          retention-days: 14
