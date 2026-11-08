@@ -1,0 +1,21 @@
+name: Honor 70 Read Bootchain ELF Headers
+on:
+  push:
+    paths:
+      - '.github/workflows/print-bootchain-headers.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Print saved bootchain ELF file identification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p report
+          gh run download 42526467603 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOOTCHAIN_ANALYSIS --dir report
+          find report -maxdepth 1 -type f -name '*.elfheader.txt' -print -exec cat {} \;
