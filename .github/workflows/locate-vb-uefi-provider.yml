@@ -1,0 +1,110 @@
+name: Honor70 Locate Verified Boot UEFI Protocol Provider
+on:
+  push:
+    paths:
+      - '.github/workflows/locate-vb-uefi-provider.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch firmware release parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p parts results
+          gh release download v8.0.0.290 --repo "$GITHUB_REPOSITORY" --pattern "HONOR70_FW_part_*" --dir parts
+          df -h .
+      - name: Extract and inspect nested ZIP safely
+        run: |
+          python3 - <<'PY'
+          import bisect, zipfile, shutil, os, hashlib
+          from pathlib import Path
+
+          files=sorted(Path('parts').glob('HONOR70_FW_part_*'))
+          expected=[f'HONOR70_FW_part_aa{chr(97+i)}' for i in range(14)]
+          assert [p.name for p in files]==expected, 'Firmware parts missing or out of order'
+          class Joined:
+              def __init__(self,files):
+                  self.fs=[p.open('rb') for p in files]; self.ends=[0]
+                  for p in files:self.ends.append(self.ends[-1]+p.stat().st_size)
+                  self.pos=0
+              def seekable(self):return True
+              def tell(self):return self.pos
+              def seek(self,o,w=0):
+                  self.pos=([0,self.pos,self.ends[-1]][w])+o
+                  if self.pos<0:raise ValueError('negative seek')
+                  return self.pos
+              def read(self,n=-1):
+                  if n is None or n<0:n=self.ends[-1]-self.pos
+                  n=min(n,max(0,self.ends[-1]-self.pos))
+                  out=bytearray()
+                  while n:
+                      i=bisect.bisect_right(self.ends,self.pos)-1
+                      if i>=len(self.fs):break
+                      count=min(n,self.ends[i+1]-self.pos)
+                      f=self.fs[i];f.seek(self.pos-self.ends[i])
+                      c=f.read(count)
+                      if len(c)!=count:raise IOError('incomplete firmware piece')
+                      out.extend(c); self.pos+=count;n-=count
+                  return bytes(out)
+              def close(self):
+                  for f in self.fs:f.close()
+
+          reader=Joined(files)
+          inner_path=Path('update_sd_base.zip')
+          try:
+              with zipfile.ZipFile(reader) as outer:
+                  info=outer.getinfo('Software/dload/update_sd_base.zip')
+                  print('OUTER_MEMBER',info.filename,info.file_size,info.compress_size)
+                  free=shutil.disk_usage('.').free
+                  if free < info.file_size+1024**3:
+                      raise RuntimeError('Insufficient disk space to safely extract inner ZIP')
+                  with outer.open(info) as stream,inner_path.open('wb') as dst:
+                      shutil.copyfileobj(stream,dst,8*1024*1024)
+          finally:
+              reader.close()
+
+          import re,uuid
+          targets={
+             'QCOM_VERIFIED_BOOT_GUID_LE':uuid.UUID('8e5eff91-21b6-47d3-af2b-c15a01e020ec').bytes_le,
+             'QCOM_VERIFIED_BOOT_GUID_BE':uuid.UUID('8e5eff91-21b6-47d3-af2b-c15a01e020ec').bytes,
+             'NAND_PARTI_GUID_LE':uuid.UUID('d68edce2-a314-457b-962a-1d99bbfcbbfb').bytes_le,
+             'VBRwDevice_UTF8':b'VBRwDevice',
+             'VBRwDevice_UTF16':b'VBRwDevice'.decode().encode('utf-16le'),
+             'QCOM_VERIFIED_BOOT_UTF8':b'VerifiedBoot',
+             'OEMINFO_ID_TRANSFORM':b'oeminfo_id_transform',
+             'SECURE_BOOT_UEFI':b'SecureBoot',
+          }
+          lines=['Search verified release stock secure boot images; zero raw matches are NOT absence of protocol (compressed modules).']
+          with zipfile.ZipFile(inner_path) as z:
+              candidates=[e for e in z.infolist()
+                          if e.filename.startswith('image/') and e.filename.lower().endswith(('.elf','.mbn','.efi','.bin')) and e.file_size<=30*1024*1024]
+              lines.append('TARGET_IMAGES '+str(len(candidates)))
+              for e in candidates:
+                  raw=z.read(e)
+                  lines.append('\n===== '+e.filename+' ===== bytes='+str(len(raw))+' sha256='+hashlib.sha256(raw).hexdigest())
+                  for tag,pat in targets.items():
+                      offs=[m.start() for m in re.finditer(re.escape(pat),raw)]
+                      if offs:lines.append('MATCH '+tag+' '+str(len(offs))+' offsets='+','.join(hex(x) for x in offs[:16]))
+                  for tag,pat in {'PE_MZ':b'MZ','UEFI_FV_HEADER':b'_FVH','LZMA_HEADER':b'\x5d\x00\x00\x80\x00'}.items():
+                      offs=[m.start() for m in re.finditer(re.escape(pat),raw)]
+                      lines.append('CONTAINER_SIGNATURE '+tag+' count='+str(len(offs))+' first='+','.join(hex(x) for x in offs[:12]))
+                  for token in (b'LOCK_STATE',b'lockstate',b'Fastboot',b'Unlock',b'Secure Boot',b'AVB',b'VBRw'):
+                      offs=[m.start() for m in re.finditer(re.escape(token),raw,re.I)]
+                      if offs:lines.append('ASCII_HINT '+token.decode('ascii','replace')+' matches='+str(len(offs))+' first='+','.join(hex(x) for x in offs[:9]))
+          Path('results/UEFI_VBRW_PROVIDER_SCAN.txt').write_text('\n'.join(lines)+'\n')
+          print('REPORT_LINES',len(lines))
+          print('\n'.join(lines)[:30000])
+          PY
+      - name: Save static GUID/protocol traces only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_UEFI_VBRW_PROVIDER_SCAN
+          path: results/
+          retention-days: 14
