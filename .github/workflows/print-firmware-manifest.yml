@@ -1,0 +1,28 @@
+name: Honor 70 Print Firmware Manifest
+on:
+  push:
+    paths:
+      - '.github/workflows/print-firmware-manifest.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download previous validated firmware report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p report
+          gh run download 42525485946 --repo "$GITHUB_REPOSITORY" --name HONOR70_FIRMWARE_REPORT --dir report
+          echo '=== REPORT FILES ==='
+          find report -maxdepth 3 -type f -printf '%P %s bytes\n'
+          echo '=== SUMMARY ==='
+          cat report/SUMMARY.txt
+          echo '=== MANIFEST ==='
+          cat report/MANIFEST.tsv
+          echo '=== COMPONENT SHA256 ==='
+          cat report/PART_SHA256.txt
