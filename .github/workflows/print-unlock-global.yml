@@ -1,0 +1,21 @@
+name: Honor 70 Print Unlock Flag Dataflow
+on:
+  push:
+    paths:
+      - '.github/workflows/print-unlock-global.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Print saved ARM64 global flag trace
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p output
+          gh run download 42528169299 --repo "$GITHUB_REPOSITORY" --name HONOR70_GLOBAL_UNLOCK_FLAG --dir output
+          cat output/GLOBAL_UNLOCK_FLAG_TRACE.txt
