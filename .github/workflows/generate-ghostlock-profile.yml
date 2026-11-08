@@ -1,0 +1,59 @@
+name: Honor 70 Generate Experimental GhostLock Profile
+on:
+  push:
+    paths:
+      - '.github/workflows/generate-ghostlock-profile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Download validated original boot.img
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p images report
+          gh run download 42530238358 --repo "$GITHUB_REPOSITORY" --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE --dir images
+          sha256sum images/boot.img
+          echo "EXPECTED: 5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256"
+          printf '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  images/boot.img\n' | sha256sum --check
+      - name: Fetch pinned upstream GhostLock profile extractor
+        run: |
+          mkdir upstream
+          git -C upstream init -q
+          git -C upstream remote add origin https://github.com/YuKongA/ghostlock-app.git
+          git -C upstream fetch --quiet --depth=1 origin 4ebc726b9001d79f3c374c917d51569e310df6bc
+          git -C upstream checkout --quiet FETCH_HEAD
+          echo "EXTRACTOR_SOURCE_REV=$(git -C upstream rev-parse HEAD)"
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - name: Compile Rust extractor
+        run: |
+          cd upstream/tools/extract_rs
+          cargo build --release > ../../../report/CARGO_BUILD.txt 2>&1 || { tail -100 ../../../report/CARGO_BUILD.txt; exit 1; }
+          find ../.. -name ghostlock-extract -type f -executable -print
+      - name: Generate candidate profile using exact stock kernel
+        run: |
+          set +e
+          EXTRACTOR=$(find upstream -name ghostlock-extract -type f -executable | head -1)
+          echo "RUNNING=$EXTRACTOR"
+          "$EXTRACTOR" images/boot.img --format conf --out report/HONOR70_CANDIDATE.conf > report/EXTRACTOR_LOG.txt 2>&1
+          RC=$?
+          echo "EXTRACTOR_EXIT=$RC"
+          tail -100 report/EXTRACTOR_LOG.txt
+          if [ -f report/HONOR70_CANDIDATE.conf ]; then
+            echo "=== CANDIDATE PROFILE ==="
+            cat report/HONOR70_CANDIDATE.conf
+          fi
+          printf 'Candidate profile is UNVERIFIED and not approved for execution on device.\nExact kernel release must match adb shell uname -r.\nWrong offsets can trigger kernel memory corruption or reboot.\n' > report/SAFETY.txt
+          exit 0
+      - name: Upload read-only extraction reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GHOSTLOCK_EXPERIMENTAL_PROFILE
+          path: report/
+          retention-days: 7
