@@ -1,0 +1,114 @@
+name: Honor 70 Extract Vendor Security Libraries
+on:
+  push:
+    paths:
+      - '.github/workflows/extract-vendor-security.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Download original firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p parts report extracted
+          gh release download v8.0.0.290 --repo "$GITHUB_REPOSITORY" --pattern "HONOR70_FW_part_*" --dir parts
+      - name: Extract vendor partition and convert sparse image offline
+        run: |
+          python3 - <<'PY'
+          import bisect,zipfile,shutil,struct,subprocess,hashlib
+          from pathlib import Path
+          parts=sorted(Path('parts').glob('HONOR70_FW_part_*'))
+          assert len(parts)==14
+          class Joined:
+            def __init__(self,parts):
+              self.fs=[p.open('rb') for p in parts];self.ends=[0];self.pos=0
+              for p in parts:self.ends.append(self.ends[-1]+p.stat().st_size)
+            def tell(self):return self.pos
+            def seekable(self):return True
+            def seek(self,v,w=0):self.pos=[0,self.pos,self.ends[-1]][w]+v;return self.pos
+            def read(self,n=-1):
+              if n<0:n=self.ends[-1]-self.pos
+              n=min(n,max(0,self.ends[-1]-self.pos));out=bytearray()
+              while n:
+                i=bisect.bisect_right(self.ends,self.pos)-1
+                if i>=len(self.fs):break
+                size=min(n,self.ends[i+1]-self.pos)
+                self.fs[i].seek(self.pos-self.ends[i]);v=self.fs[i].read(size)
+                if len(v)!=size:raise IOError('short read')
+                out+=v;n-=size;self.pos+=size
+              return bytes(out)
+            def close(self):
+              for f in self.fs:f.close()
+          x=Joined(parts)
+          try:
+            with zipfile.ZipFile(x) as z:
+              obj=z.getinfo('Software/dload/update_sd_base.zip')
+              assert shutil.disk_usage('.').free>obj.file_size+2*1024**3
+              with z.open(obj) as r,open('base.zip','wb') as w:shutil.copyfileobj(r,w,8*1024*1024)
+          finally:x.close()
+          with zipfile.ZipFile('base.zip') as z:
+            with z.open('image/vendor.img') as r,open('vendor.sparse','wb') as w:
+              shutil.copyfileobj(r,w,8*1024*1024)
+          with open('vendor.sparse','rb') as fi:
+            head=fi.read(28)
+            magic,major,minor,fh,ch,bs,blocks,count,csum=struct.unpack('<IHHHHIIII',head)
+            assert magic==0xed26ff3a and major==1 and bs==4096
+            assert blocks*bs < 3*1024**3
+            fi.seek(fh)
+            with open('vendor.raw','wb') as fo:
+              for k in range(count):
+                typ,res,n,tot=struct.unpack('<HHII',fi.read(ch))
+                length=n*bs
+                if typ==0xcac1:
+                  assert tot==ch+length
+                  remaining=length
+                  while remaining:
+                    b=fi.read(min(remaining,8*1024*1024))
+                    if not b:raise IOError('truncated RAW')
+                    fo.write(b);remaining-=len(b)
+                elif typ==0xcac2:
+                  pattern=fi.read(4)
+                  fill=pattern*(bs//4)
+                  for _ in range(n):fo.write(fill)
+                elif typ==0xcac3:fo.seek(length,1)
+                elif typ==0xcac4:fi.read(4)
+                else:raise ValueError('unexpected chunk type '+hex(typ))
+              fo.truncate(blocks*bs)
+          print('RAW_VENDOR_BYTES',Path('vendor.raw').stat().st_size)
+          print('RAW_VENDOR_FILE',subprocess.run(['file','-b','vendor.raw'],capture_output=True,text=True).stdout.strip())
+          paths=[
+            '/lib64/libBootloaderOeminfo.so',
+            '/lib64/liboeminfo.so',
+            '/lib64/hw/vendor.honor.hardware.honorantitheft@1.0-impl.so',
+            '/bin/hw/vendor.honor.hardware.hwsecurity-service',
+            '/etc/vintf/manifest_lahaina.xml',
+            '/etc/selinux/vendor_sepolicy.cil'
+          ]
+          with open('report/EXTRACT_LOG.txt','w') as log:
+            for query in ['ls -p /','ls -p /lib64','ls -p /lib64/hw','ls -p /etc/vintf']:
+              res=subprocess.run(['debugfs','-R',query,'vendor.raw'],capture_output=True,text=True)
+              log.write('\n=== '+query+' ===\n'+(res.stdout+res.stderr)[:18000])
+            for path in paths:
+              dest=Path('extracted')/Path(path).name
+              result=subprocess.run(['debugfs','-R',f'dump {path} {dest}','vendor.raw'],capture_output=True,text=True)
+              if dest.exists() and dest.stat().st_size:
+                sha=hashlib.sha256(dest.read_bytes()).hexdigest()
+                line=f'EXTRACTED {path} {dest.stat().st_size} {sha}'
+              else:line=f'NOT_FOUND {path}: '+(result.stdout+result.stderr).strip()[:200]
+              print(line);log.write('\n'+line+'\n')
+          print('=== FILESYSTEM INVENTORY FIRST 5000 CHARS ===')
+          print(Path('report/EXTRACT_LOG.txt').read_text()[:5000])
+          PY
+      - name: Upload small libraries and forensic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VENDOR_SECURITY
+          path: |
+            extracted/
+            report/
+          retention-days: 7
