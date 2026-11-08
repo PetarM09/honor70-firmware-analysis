@@ -13,7 +13,7 @@ public class Honor70ABLDecompile extends GhidraScript {
        0x27A74L,0x27A5CL,0x27A8CL,0x23FD0L,0x24154L,
        0x433A8L,0x433D8L,0x433E8L,0x13008L,
        0x12CF8L,0x12E90L,0x136A4L,0x1BF74L,
-       0x25130L,0x25144L
+       0x25130L,0x25144L,0x43688L,0x3DAB8L,0x27B44L,0x13414L,0x20F48L,0x1895CL,0x18F70L,0x14568L,0x1471CL
     };
     @Override
     public void run() throws Exception {
@@ -51,7 +51,7 @@ public class Honor70ABLDecompile extends GhidraScript {
                 pw.println("COMPLETE: "+r.decompileCompleted()+" ERROR: "+r.getErrorMessage());
                 if (r.decompileCompleted() && r.getDecompiledFunction() != null) {
                     String src=r.getDecompiledFunction().getC();
-                    if (src.length()>24000)src=src.substring(0,24000)+"\n...TRUNCATED...";
+                    if (src.length()>55000)src=src.substring(0,55000)+"\n...TRUNCATED...";
                     pw.println(src);
                 }
                 pw.flush();
