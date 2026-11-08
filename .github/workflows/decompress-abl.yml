@@ -1,0 +1,63 @@
+name: Honor 70 Decompress Genuine ABL
+on:
+  push:
+    paths:
+      - '.github/workflows/decompress-abl.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retrieve bootchain artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous results
+          gh run download 42527019027 --repo "$GITHUB_REPOSITORY" --name HONOR70_DEEP_BOOTCHAIN --dir previous
+      - name: Decode UEFI GUID-defined LZMA section
+        run: |
+          python3 - <<'PY'
+          import hashlib,struct,uuid,lzma,subprocess,re
+          from pathlib import Path
+          blob=Path('previous/keybins/abl.elf').read_bytes()
+          fv=blob.find(b'_FVH')-40
+          assert fv==0x3000
+          ffs=(fv+struct.unpack_from('<H',blob,fv+48)[0]+7)&~7
+          section=ffs+24
+          size=blob[section]|blob[section+1]<<8|blob[section+2]<<16
+          assert blob[section+3]==2
+          guid=uuid.UUID(bytes_le=blob[section+4:section+20])
+          assert str(guid)=='ee4e5898-3914-4259-9d6e-dc7bd79403cf', str(guid)
+          off,attr=struct.unpack_from('<HH',blob,section+20)
+          payload=blob[section+off:section+size]
+          print('LZMA GUID',guid,'FFS_START',hex(ffs),'SECTION_START',hex(section),'LZMA_START',hex(section+off))
+          print('LZMA_HEADER',payload[:16].hex(),'ATTRIBUTES',hex(attr),'COMPRESSED',len(payload))
+          exp=int.from_bytes(payload[5:13],'little')
+          print('LZMA_DECLARED_UNCOMPRESSED',exp)
+          assert exp<=15*1024*1024,'Unexpected decompressed size'
+          out=lzma.decompress(payload,format=lzma.FORMAT_ALONE)
+          print('DECOMPRESSED_BYTES',len(out),'SHA256',hashlib.sha256(out).hexdigest())
+          print('HEADER',out[:96].hex())
+          f=Path('results/ABL_LinuxLoader_290.bin');f.write_bytes(out)
+          print('FILE',subprocess.run(['file','-b',str(f)],capture_output=True,text=True).stdout.strip())
+          print('READ_ELF',subprocess.run(['readelf','-h',str(f)],capture_output=True,text=True).stdout[:1600])
+          matches=re.compile(rb'(?i)(oeminfo|lockstate|unlock|fastboot|flashing|factory|sign|auth|token|manufacture|bootloader|rdlock|permit)')
+          lines=[]
+          for m in re.finditer(rb'[ -~]{5,}',out):
+              text=m.group(0)
+              if matches.search(text):
+                  lines.append(f'0x{m.start():x} {text[:180].decode("ascii","replace")}')
+          Path('results/ABL_STRING_MATCHES.txt').write_text('\n'.join(lines))
+          print('TOTAL_RELEVANT_STRINGS',len(lines))
+          print('\n'.join(lines[:180]))
+          PY
+      - name: Save extracted ABL and results
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_DECOMPRESSED_ABL
+          path: results/
+          retention-days: 7
