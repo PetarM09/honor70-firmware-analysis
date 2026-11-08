@@ -1,0 +1,52 @@
+name: Honor70 Map Read-only OEM Lock Interfaces
+on:
+  push:
+    paths:
+      - '.github/workflows/map-oemlock-interfaces.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve prior verified system jar bytecode report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs reports
+          gh run download 42533989312 --repo "$GITHUB_REPOSITORY" --name HONOR70_SYSTEM_OEM_UNLOCK_SERVICES --dir inputs
+      - name: Extract actual OemLock implementation methods and permissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('inputs/SYSTEM_OEM_UNLOCK_SERVICES.txt').read_text(errors='replace')
+          matches=list(re.finditer(r'^===== CLASS (.*?) =====$',d,re.M))
+          selected=[]
+          for i,m in enumerate(matches):
+             name=m.group(1)
+             if not any(k in name for k in ('OemLockService','OemLock','PersistentDataBlockService')):
+                continue
+             body=d[m.end():matches[i+1].start() if i+1<len(matches) else len(d)]
+             methods=re.split(r'(?=^METHOD )',body,flags=re.M)
+             titles=[s.splitlines()[0] for s in methods if s.startswith('METHOD ')]
+             selected.append('\n===== '+name+' =====\n'+'\n'.join(titles))
+             for s in methods:
+                if not s.startswith('METHOD '):continue
+                title=s.splitlines()[0]
+                if any(k in title.lower() for k in ('isunlock','isallow','isdeviceoem','isuser','iscarrier','getunlock','oemunlockallowedbyuser','enforceoem','getoemunlock')):
+                   selected.append('\n===== '+name+' :: '+title+' =====\n'+s[:8500])
+          out='\n'.join(selected)
+          Path('reports/OEMLOCK_SERVICE_READONLY_MAP.txt').write_text(out)
+          print('CLASSES',len(matches),'SAVED_BYTES',len(out))
+          print(out[:57000])
+          PY
+      - name: Save evidence map
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_OEMLOCK_READONLY_MAP
+          path: reports/
+          retention-days: 14
