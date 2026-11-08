@@ -1,0 +1,62 @@
+name: Honor70 Inspect OEMINFO ID Translation
+on:
+  push:
+    paths:
+      - '.github/workflows/oeminfo-transform-analysis.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retrieve exact original ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Trace ABL OEMINFO ID handling and callsites
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib,re
+          d=next(Path('src').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          lines=[]
+          def emit(s):lines.append(s)
+          for label,a,b in [
+            ('OEMINFO_ID_TRANSFORM_LOGIC',0x484e0,0x48820),
+            ('RMT_OEMINFO_READ',0x135a0,0x137b0),
+            ('OEMINFO_LOCK_FLAG_INITIALIZER',0x12cf8,0x13018),
+            ('GET_FASTBOOT_LOCK_STATUS',0x13008,0x131c0),
+            ('FRP_UNLOCK_HANDLER',0x16890,0x16d00)]:
+            emit(f'===== {label} addr=0x{a:x}..0x{b:x} =====')
+            for i in md.disasm(d[a:b],a):
+              emit(f'{i.address:08x}  {i.mnemonic:9} {i.op_str}')
+          targets={0x136a4:'OEMINFO_READ',0x48650:'OEMINFO_TRANSFORM_CANDIDATE',0x485f0:'OEMINFO_TRANSFORM_NEARBY'}
+          code=list(md.disasm(d[0x1000:0xb0000],0x1000))
+          for target,name in targets.items():
+            refs=[(ix,i) for ix,i in enumerate(code) if i.mnemonic=='bl' and i.op_str==f'#0x{target:x}']
+            emit(f'===== CALLS {name} 0x{target:x} COUNT {len(refs)} =====')
+            for ix,i in refs[:30]:
+              emit(f'CALLSITE 0x{i.address:x}')
+              for p in code[max(0,ix-10):min(len(code),ix+4)]:
+                emit(f'  {p.address:08x} {p.mnemonic:9} {p.op_str}')
+          emit('=== STRING MARKERS ===')
+          for pattern in (b'oeminfo_id_transform',b'rdlock',b'frp-unlock'):
+            emit(f'{pattern!r}: '+','.join(hex(m.start()) for m in re.finditer(re.escape(pattern),d)))
+          Path('report/ABL_OEMINFO_TRANSFORM_TRACE.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines)[:50000])
+          PY
+      - name: Save static trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_OEMINFO_TRANSFORM_TRACE
+          path: report/
+          retention-days: 10
