@@ -17,7 +17,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p src report
-          gh run download 42533269683 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src
+          gh run download 42533867117 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -27,16 +27,16 @@ jobs:
           for p in parts:
               if not p.startswith('========== TARGET '):continue
               label=p.splitlines()[0]
-              if any(x in label.lower() for x in ('00027850','00025b88','000436','00013008','00012cf8','000433a8','000433d8','000433e8','000136a4')):
+              if any(x in label.lower() for x in ('00043688','0003dab8','00027b44','00013414','00020f48','0001895c','00018f70','00014568','0001471c')):
                   out.append(label)
-                  out.append(p[:12500])
+                  out.append(p[:24000])
           for token in ('DAT_001cdfd8','Flashing Unlock is not allowed','GLOBAL_UNLOCK_PERMISSION_REFERENCE_XREFS'):
               out.append('\n===== OCCURRENCES '+token+' =====')
               for m in list(re.finditer(re.escape(token),d,re.I))[:12]:
                   out.append(d[max(0,m.start()-350):m.end()+550])
           Path('report/KEY_GHIDRA_FINDINGS.txt').write_text('\n'.join(out))
           print('EXTRACT_BYTES',len('\n'.join(out)))
-          print('\n'.join(out)[:42000])
+          print('\n'.join(out)[:56000])
           PY
       - name: Save evidence summary
         uses: actions/upload-artifact@v4
