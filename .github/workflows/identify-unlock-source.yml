@@ -1,0 +1,58 @@
+name: Honor70 Identify Unlock Permission Source Identifier
+on:
+  push:
+    paths:
+      - '.github/workflows/identify-unlock-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve verified LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Identify file, variable and filesystem objects
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib,struct
+          d=next(Path('input').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          lines=[]
+          def emit(*items):lines.append(' '.join(map(str,items)))
+          def ascii_at(n):
+            return d[n:n+250].split(b'\x00')[0].decode('utf8','replace')
+          for n in [0xbb0d0,0xbbe26,0xbbd28,0xbbfa8,0xb5c2e,0xbb586,0xbb5bc,0xbad28,0xb62b7,0xbcdf9]:
+            emit('AT',hex(n),'ASCII',repr(ascii_at(n)),'HEX64',d[n:n+64].hex())
+          emit('===== REGISTERED_FASTBOOT_COMMANDS =====')
+          for off in range(0xbbfa8,0xbbfa8+0x3a0,16):
+            x,y=struct.unpack_from('<QQ',d,off)
+            name=ascii_at(x) if 0xa0000<=x<0x1b0000 else '[non-ASCII]'
+            emit(hex(off),'name_pointer',hex(x),'function_pointer',hex(y),'name',repr(name[:90]))
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for tag,a,b in [
+            ('LOOKUP_HELPER_0x20f48',0x20e90,0x21000),
+            ('UNLOCK_SOURCE_SETUP',0x23f84,0x24110),
+            ('READ_SOURCE_CALLBACK_SETUP',0x20ec0,0x21050),
+            ('OEMINFO_ID_TRANSFORM_STRING_REFERENCE',0x133c0,0x134b0)]:
+            emit('===== '+tag+' =====')
+            for i in md.disasm(d[a:b],a):
+              emit(f'{i.address:x}',i.mnemonic,i.op_str)
+          Path('report/UNLOCK_SOURCE_IDENTIFIER.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines)[:54000])
+          PY
+      - name: Upload analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_UNLOCK_SOURCE_IDENTIFICATION
+          path: report/
+          retention-days: 10
