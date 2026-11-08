@@ -1,0 +1,57 @@
+name: Honor 70 Find Unlock Permission Flag Writers
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-unlock-global.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve exact ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src output
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Find ARM64 references to global permission structure
+        run: |
+          python3 - <<'PY'
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_IMM
+          from pathlib import Path
+          d=next(Path('src').glob('*.efi')).read_bytes()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          ins=list(md.disasm(d[0x1000:0xb0000],0x1000))
+          report=[]
+          for k,q in enumerate(ins):
+            if q.mnemonic=='adrp' and len(q.operands)>=2 and q.operands[1].type==ARM64_OP_IMM and q.operands[1].imm in (0x1cd000,0x1ce000):
+              register=q.operands[0].reg
+              context=ins[k:k+18]
+              if any(x.mnemonic=='add' and '#0xfc8' in x.op_str for x in context) or any('[x8, #0x10]' in x.op_str for x in context):
+                report.append(f'=== GLOBAL_PAGE_REF {hex(q.address)} page={hex(q.operands[1].imm)} ===')
+                for x in ins[max(0,k-10):min(k+27,len(ins))]:
+                  report.append(f'{x.address:08x} {x.mnemonic:8} {x.op_str}')
+          # Also inspect init around known IsAllowUnlock logger
+          report.append('=== INIT_CALL_CHAIN 0x23c40..0x24080 ===')
+          for x in md.disasm(d[0x23c40:0x24080],0x23c40):
+            report.append(f'{x.address:08x} {x.mnemonic:8} {x.op_str}')
+          report.append('=== CHECK_LOCK 0x12f80..0x13200 ===')
+          for x in md.disasm(d[0x12f80:0x13200],0x12f80):
+            report.append(f'{x.address:08x} {x.mnemonic:8} {x.op_str}')
+          Path('output/GLOBAL_UNLOCK_FLAG_TRACE.txt').write_text('\n'.join(report))
+          print('TOTAL_REPORT_LINES',len(report))
+          for line in report:
+            if line.startswith('==='):print(line)
+          PY
+      - name: Save report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GLOBAL_UNLOCK_FLAG
+          path: output/
+          retention-days: 7
