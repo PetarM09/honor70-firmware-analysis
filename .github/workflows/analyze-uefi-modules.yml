@@ -1,0 +1,96 @@
+name: Honor 70 Analyze Decompressed UEFI ABL Modules
+on:
+  push:
+    paths:
+      - '.github/workflows/analyze-uefi-modules.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve decompressed ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prev output
+          gh run download 42527402809 --repo "$GITHUB_REPOSITORY" --name HONOR70_DECOMPRESSED_ABL --dir prev
+      - name: Inventory nested UEFI firmware volumes and executable modules
+        run: |
+          python3 - <<'PY'
+          import hashlib,struct,re,uuid,subprocess
+          from pathlib import Path
+          d=Path('prev/ABL_LinuxLoader_290.bin').read_bytes()
+          report=[]
+          def emit(*parts):report.append(' '.join(str(x) for x in parts))
+          emit('SOURCE_SIZE',len(d),'SHA256',hashlib.sha256(d).hexdigest())
+          valid=[]
+          for m in re.finditer(b'_FVH',d):
+            off=m.start()-40
+            if off<0 or off+56>len(d):continue
+            length=struct.unpack_from('<Q',d,off+32)[0]
+            hlen=struct.unpack_from('<H',d,off+48)[0]
+            if length>len(d)-off or hlen<56 or hlen>8192:continue
+            if (sum(struct.unpack_from('<'+'H'*(hlen//2),d,off))&0xffff)!=0:continue
+            guid=str(uuid.UUID(bytes_le=d[off+16:off+32]))
+            valid.append((off,length,hlen,guid))
+          for off,length,hlen,guid in valid:
+            emit('FIRMWARE_VOLUME',hex(off),'LENGTH',length,'HEADER_LENGTH',hlen,'GUID',guid)
+            cur=(off+hlen+7)&~7;end=off+length
+            for ix in range(200):
+              if cur+24>end:break
+              hdr=d[cur:cur+24]
+              if hdr==b'\xff'*24 or hdr==b'\x00'*24:
+                emit('  END_FFS',hex(cur));break
+              size=int.from_bytes(hdr[20:23],'little')
+              if size<24 or size>end-cur:
+                emit('  BAD_FFS',hex(cur),'SIZE',size,'HEAD',hdr.hex());break
+              ft=hdr[18];attr=hdr[19]
+              emit('  FFS',ix,'OFFSET',hex(cur),'SIZE',size,'TYPE',hex(ft),
+                   'GUID',str(uuid.UUID(bytes_le=hdr[:16])),'ATTR',hex(attr))
+              sec=cur+24;fend=cur+size
+              for j in range(80):
+                if sec+4>fend:break
+                slen=int.from_bytes(d[sec:sec+3],'little')
+                st=d[sec+3]
+                emit('    SECTION',j,'OFFSET',hex(sec),'SIZE',slen,'TYPE',hex(st))
+                if slen<4 or sec+slen>fend:break
+                if st in (0x10,0x12):
+                  b=d[sec+4:sec+slen]
+                  stem=f'fv{off:x}_f{ix}_s{j}'
+                  f=Path('output')/(stem+'.efi');f.write_bytes(b)
+                  result=subprocess.run(['file','-b',str(f)],capture_output=True,text=True).stdout.strip()
+                  emit('    EXTRACTED_EXECUTABLE',f.name,'SIZE',len(b),'SHA256',hashlib.sha256(b).hexdigest(),'FILE',result)
+                  if b[:2]==b'MZ' and len(b)>=0x40:
+                    peoff=struct.unpack_from('<I',b,0x3c)[0]
+                    if peoff+6<len(b):
+                      emit('    PE_HEADER',hex(peoff),b[peoff:peoff+16].hex())
+                if st==0x15:
+                  emit('    UI_TEXT',d[sec+4:sec+min(slen,100)].decode('utf-16le','replace')[:70])
+                sec=(sec+slen+3)&~3
+              cur=(cur+size+7)&~7
+          emit('TOTAL_VALID_FV',len(valid))
+          # Find independent PE images even if the firmware volume uses a different encapsulation
+          pes=[]
+          for m in re.finditer(b'MZ',d):
+            off=m.start()
+            if off+64>len(d):continue
+            peoff=struct.unpack_from('<I',d,off+0x3c)[0]
+            if peoff>0x2000 or off+peoff+6>len(d):continue
+            if d[off+peoff:off+peoff+4]!=b'PE\0\0':continue
+            machine=struct.unpack_from('<H',d,off+peoff+4)[0]
+            pes.append((off,peoff,machine))
+          emit('TOTAL_VALID_PE_SIGNATURES',len(pes))
+          for item in pes[:100]:emit('PE_AT',hex(item[0]),'NT_HEADER',hex(item[1]),'MACHINE',hex(item[2]))
+          Path('output/FV_MODULE_REPORT.txt').write_text('\n'.join(report)+'\n')
+          print('\n'.join(report)[:58000])
+          PY
+      - name: Upload report and extracted PE files
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_MODULES
+          path: output/
+          retention-days: 7
