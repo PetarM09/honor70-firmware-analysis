@@ -1,0 +1,81 @@
+name: Honor70 Trace ABL Permission Source
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-permission-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download verified decompressed ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Trace permission-state loads and stores
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG,ARM64_OP_IMM,ARM64_OP_MEM
+          import hashlib,pefile,re
+          p=next(Path('src').glob('*.efi'))
+          d=p.read_bytes()
+          expected='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          assert hashlib.sha256(d).hexdigest()==expected
+          pe=pefile.PE(data=d,fast_load=True)
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          ins=[]
+          for section in pe.sections:
+            if section.Characteristics&0x20000000:
+              ins.extend(md.disasm(section.get_data(),pe.OPTIONAL_HEADER.ImageBase+section.VirtualAddress))
+          targets={0x1cdfc8:'GLOBAL_BASE',0x1cdfd8:'ALLOW_UNLOCK'}
+          records=[]
+          for idx,inst in enumerate(ins):
+            if inst.mnemonic not in ('adrp','adr') or len(inst.operands)<2:continue
+            if inst.operands[1].type!=ARM64_OP_IMM:continue
+            base=inst.operands[1].imm
+            if not (0x1cd000<=base<=0x1ce000):continue
+            regs={inst.operands[0].reg:base}
+            context=[]
+            for j in range(idx+1,min(idx+48,len(ins))):
+              op=ins[j];o=op.operands
+              if op.address>inst.address+0x120 or op.mnemonic in ('ret','br'):break
+              if op.mnemonic in ('adrp','adr') and len(o)>=2 and o[0].type==ARM64_OP_REG:
+                if o[0].reg in regs and op.address!=inst.address:break
+              if op.mnemonic=='add' and len(o)>=3 and o[0].type==ARM64_OP_REG and o[1].type==ARM64_OP_REG and o[2].type==ARM64_OP_IMM:
+                if o[1].reg in regs:regs[o[0].reg]=regs[o[1].reg]+o[2].imm
+              if op.mnemonic=='mov' and len(o)>=2 and o[0].type==ARM64_OP_REG and o[1].type==ARM64_OP_REG and o[1].reg in regs:
+                regs[o[0].reg]=regs[o[1].reg]
+              for k,param in enumerate(o):
+                if param.type==ARM64_OP_MEM and param.mem.base in regs:
+                  addr=regs[param.mem.base]+param.mem.disp
+                  if 0x1cdfa0<=addr<0x1ce020:
+                    mode='WRITE' if op.mnemonic.startswith(('str','stp','stur','sturh','sturb')) and k==len(o)-1 else 'READ'
+                    context.append((op.address,mode,addr,op.mnemonic,op.op_str))
+              if op.mnemonic=='b':break
+            if context:records.append((inst.address,context))
+          text=[]
+          for adr,ctx in records:
+            text.append('=== POINTER_MATERIALIZATION 0x%x ==='%adr)
+            for addr,mode,dst,mnem,ops in ctx:
+              text.append('  0x%x %s global=0x%x %s %s'%(addr,mode,dst,mnem,ops))
+          text.append('=== GLOBAL INITIAL BYTES ===')
+          text.append(d[0x1cdfc8:0x1cdff8].hex(' '))
+          Path('report/ABL_PERMISSION_DATAFLOW.txt').write_text('\n'.join(text)+'\n')
+          print('POINTER_SITE_COUNT',len(records))
+          print('\n'.join(text[:240]))
+          PY
+      - name: Save result
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_PERMISSION_SOURCE
+          path: report/
+          retention-days: 7
