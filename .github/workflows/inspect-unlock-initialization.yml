@@ -1,0 +1,54 @@
+name: Honor70 Inspect ABL Unlock Initialization
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-unlock-initialization.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download exact ABL ELF artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir source
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Trace ABL initialization and indirect state setup
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          d=next(Path('source').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          sections=[
+            ('INIT_GLOBAL_0x20d',0x20d00,0x20e00),
+            ('INIT_STATE_0x217',0x216c0,0x217d0),
+            ('IS_ALLOW_UNLOCK',0x23d80,0x24060),
+            ('INIT_STATE_0x242',0x24290,0x244a0),
+            ('INIT_STATE_0x251',0x250d0,0x25230),
+            ('FLASHING_STATE_GATE',0x27850,0x27a20),
+          ]
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          full=[]
+          for name,a,b in sections:
+            lines=[f'=== {name} 0x{a:x}..0x{b:x} ===']
+            for ins in md.disasm(d[a:b],a):
+              lines.append(f'0x{ins.address:06x} {ins.mnemonic:8s} {ins.op_str}')
+            full.extend(lines)
+            if name in ('INIT_STATE_0x251','IS_ALLOW_UNLOCK','INIT_STATE_0x242'):
+              print('\n'.join(lines))
+          Path('report/ABL_UNLOCK_INITIALIZATION.txt').write_text('\n'.join(full)+'\n')
+          PY
+      - name: Save ARM64 disassembly
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_UNLOCK_INITIALIZATION
+          path: report/
+          retention-days: 7
