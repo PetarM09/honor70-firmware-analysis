@@ -1,0 +1,46 @@
+name: Honor70 Trace Unlock Permission Writer 0x240C8
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-240c8-writer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch matching original LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Disassemble direct writer and predecessor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib
+          d=next(Path('src').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ranges=[('PRECONDITION',0x23f80,0x24068),('UNLOCK_PERMISSION_WRITER',0x24060,0x24118),
+                 ('SOURCE_CALL_0x27D',0x27d40,0x27e30),('SOURCE_FUNC_0x27A',0x27a00,0x27ae0)]
+          report=[]
+          for name,a,b in ranges:
+            report.append('====== '+name+' ======')
+            for ins in md.disasm(d[a:b],a):
+              report.append(f'0x{ins.address:x}: {ins.mnemonic:9} {ins.op_str}')
+          Path('report/WRITER_240C8_DISASM.txt').write_text('\n'.join(report)+'\n')
+          print('\n'.join(report))
+          PY
+      - name: Upload forensic output
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_UNLOCK_WRITER_240C8
+          path: report/
+          retention-days: 10
