@@ -1,0 +1,65 @@
+name: Honor70 Ghidra Deep Unlock Decompilation
+on:
+  push:
+    paths:
+      - '.github/workflows/ghidra-abl-decompile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Check out analyst scripts
+        uses: actions/checkout@v4
+      - name: Set up required Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Retrieve verified LinuxLoader EFI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs report ghidra-dist
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir inputs
+          test -f inputs/fv0_f0_s0.efi || ls -lh inputs
+          FILE=$(find inputs -name '*.efi' -type f | head -1)
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  '"$FILE" | sha256sum --check
+          cp "$FILE" ./LinuxLoader_HONOR70_290.efi
+      - name: Download pinned official Ghidra release and verify hash
+        run: |
+          curl -fL --retry 3 --output /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum --check
+          unzip -q /tmp/ghidra.zip -d ghidra-dist
+          rm /tmp/ghidra.zip
+          GHIDRA=$(find ghidra-dist -type f -name analyzeHeadless | head -1)
+          test -n "$GHIDRA"
+          echo "GHIDRA_HEADLESS=$GHIDRA" >> "$GITHUB_ENV"
+      - name: Import and decompile ABL code
+        run: |
+          mkdir -p /tmp/ghidra-project
+          "$GHIDRA_HEADLESS" /tmp/ghidra-project HONOR70_LINUXLOADER             -import "$GITHUB_WORKSPACE/LinuxLoader_HONOR70_290.efi"             -scriptPath "$GITHUB_WORKSPACE/tools/ghidra"             -postScript Honor70ABLDecompile.java             -analysisTimeoutPerFile 600             -max-cpu 2             -deleteProject > report/GHIDRA_HEADLESS_LOG.txt 2>&1 || {
+              tail -100 report/GHIDRA_HEADLESS_LOG.txt
+              exit 1
+            }
+          echo '=== GHIDRA LOG TAIL ==='
+          tail -40 report/GHIDRA_HEADLESS_LOG.txt
+          echo '=== DECOMPILATION EXTRACTS ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('report/GHIDRA_ABL_DECOMPILATION.txt')
+          print('REPORT_SIZE',p.stat().st_size)
+          s=p.read_text(errors='replace')
+          for tok in ['========== TARGET 00027850','========== TARGET 00025b88','========== TARGET 00027db4','GLOBAL_UNLOCK_PERMISSION_REFERENCE_XREFS']:
+              i=s.lower().find(tok.lower())
+              if i>=0: print('\n'+s[i:i+9000])
+          PY
+      - name: Store decompiler report only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GHIDRA_UNLOCK_DECOMPILATION
+          path: report/
+          retention-days: 10
