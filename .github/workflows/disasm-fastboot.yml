@@ -1,0 +1,57 @@
+name: Honor 70 Disassemble Fastboot and Lock Logic
+on:
+  push:
+    paths:
+      - '.github/workflows/disasm-fastboot.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch original LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src out
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Disassemble targeted ARM64 ranges without changes
+        run: |
+          python3 - <<'PY'
+          import re,hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          p=next(Path('src').glob('*.efi'));d=p.read_bytes()
+          print('FILE_SHA256',hashlib.sha256(d).hexdigest())
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          regions=[
+            ('FASTBOOT_UNLOCK_GATE',0x277e0,0x27a20),
+            ('FASTBOOT_UNLOCK_QUERY',0x25b50,0x25ca0),
+            ('IS_ALLOW_UNLOCK_CALLER',0x23f00,0x240a0),
+            ('OEMINFO_RDLOCK_INIT',0x12cf8,0x12e80),
+            ('SIGNATURE_CERT_VALIDATION',0x17540,0x176d8),
+            ('OEMINFO_FACTORY',0x13300,0x13500),
+          ]
+          for name,start,end in regions:
+            lines=[f'=== {name} VA 0x{start:x}-0x{end:x} ===']
+            for ins in md.disasm(d[start:end],start):
+              annotation=''
+              for match in re.findall(r'#0x([0-9a-f]+)',ins.op_str):
+                v=int(match,16)
+                if 0xb0000 <= v <= 0xc0000 and len(d)>v:
+                  z=d[v:v+90].split(b'\x00')[0]
+                  if len(z)>5 and all(32<=x<127 for x in z):annotation=' ; '+z[:80].decode(errors='replace')
+              lines.append(f'{ins.address:08x} {ins.mnemonic:8} {ins.op_str}{annotation}')
+            Path('out/'+name+'.txt').write_text('\n'.join(lines)+'\n')
+            print('\n'.join(lines)[:32000])
+          PY
+      - name: Save detailed disassembly
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_DISASM_FASTBOOT
+          path: out/
+          retention-days: 7
