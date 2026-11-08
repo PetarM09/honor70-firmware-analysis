@@ -1,0 +1,41 @@
+name: Honor70 Check GBL and efisp Partition Evidence
+on:
+  push:
+    paths:
+      - '.github/workflows/check-gbl-efisp-evidence.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch previously verified stock manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p manifest report
+          gh run download 42526266078 --repo "$GITHUB_REPOSITORY" --name HONOR70_INNER_MANIFEST --dir manifest
+      - name: Search original partition filenames for GBL indicators
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('manifest/INNER_MANIFEST.tsv')
+          rows=p.read_text(errors='replace').splitlines()
+          interesting=[]
+          patterns=('gpt','partition','ptable','rawprogram','efisp','gbl','devinfo','sbl','abl','xbl','bootconfig','boot.img','uefi','frp')
+          for line in rows:
+            if any(term in line.lower() for term in patterns):
+              interesting.append(line)
+          text='STOCK_FILES='+str(len(rows)-1)+'\n\n'+'\n'.join(interesting)+'\n'
+          Path('report/GBL_PARTITION_EVIDENCE.txt').write_text(text)
+          print(text)
+          PY
+      - name: Archive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GBL_PARTITION_EVIDENCE
+          path: report/
+          retention-days: 14
