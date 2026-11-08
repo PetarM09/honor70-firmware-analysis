@@ -1,0 +1,68 @@
+name: Honor 70 OEMINFO 95 vs 130 Static Evidence
+on:
+  push:
+    paths:
+      - '.github/workflows/oeminfo-id-compare.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact Honor ABL and vendor libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p abl vendor result
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir abl
+          gh run download 42528235200 --repo "$GITHUB_REPOSITORY" --name HONOR70_VENDOR_SECURITY --dir vendor
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Trace OEMINFO record selectors in original binaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,struct,hashlib,re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          d=next(Path('abl').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          lines=[]
+          def log(*x):lines.append(' '.join(str(v) for v in x))
+          for a,b,label in [(0x12cd0,0x12d70,'ABL_RDLOCK_RECORD_READER'),
+                            (0x12e30,0x12f10,'ABL_RDLOCK_POSTPROCESS'),
+                            (0x13680,0x136e0,'ABL_OEMINFO_READ_WRAPPER'),
+                            (0x17e30,0x17f60,'ABL_SIGNATURE_AUTH_READER')]:
+            log('===',label,'===')
+            for i in md.disasm(d[a:b],a):log(hex(i.address),i.mnemonic,i.op_str)
+          for p in Path('vendor/extracted').glob('*'):
+            if p.suffix not in ('.so','') or not p.is_file():continue
+            data=p.read_bytes()
+            log('===',p.name,'SHA256',hashlib.sha256(data).hexdigest(),'===')
+            for cmd in [['file','-b',str(p)],['readelf','-Ws',str(p)]]:
+              out=subprocess.run(cmd,capture_output=True,text=True)
+              if cmd[0]=='readelf':
+                outstr='\n'.join(x for x in out.stdout.splitlines() if any(t in x.lower() for t in ('oeminfo','bootloader','lock','anti','read','write')))[:7000]
+              else:outstr=out.stdout
+              log('COMMAND',cmd[0],outstr)
+            for pat in (b'OEMINFO',b'unlock',b'rdlock',b'95',b'130'):
+              hits=[m.start() for m in re.finditer(re.escape(pat),data)]
+              log('TEXT',repr(pat),'count',len(hits),'offsets',','.join(hex(h) for h in hits[:25]))
+          # Adjacent 32-bit field patterns may be suggestive but not proof of a mapping table
+          suspects=[]
+          for o in range(0x1b4000,0x325000-32,4):
+            ints=struct.unpack_from('<IIIIIIII',d,o)
+            if (95 in ints and 130 in ints):
+              suspects.append((hex(o),ints))
+          log('NEARBY_95_130_WORDS_NOT_PROOF',suspects[:25],'total',len(suspects))
+          Path('result/OEMINFO_ID_EVIDENCE.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines)[:25000])
+          PY
+      - name: Upload reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_OEMINFO_ID_EVIDENCE
+          path: result/
+          retention-days: 7
