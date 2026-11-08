@@ -1,0 +1,47 @@
+name: Honor70 Extract Fastboot Denial Ghidra Logic
+on:
+  push:
+    paths:
+      - '.github/workflows/print-fastboot-denial-decomp.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve successful Ghidra run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42534601904 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src
+      - name: Extract denial filter and its helpers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('src/GHIDRA_ABL_DECOMPILATION.txt').read_text(errors='replace')
+          target=['00019cdc','00019ce8','00019788','0001a048','0001a060',
+                  '0001a08c','000149f4','00015b08','0001545c','0001a0a0']
+          out=[]
+          for t in target:
+            m=re.search(r'^========== TARGET '+t+r' =+\n',d,re.I|re.M)
+            if not m:out.append('MISSING '+t);continue
+            e=re.search(r'^========== TARGET ',d[m.end():],re.M)
+            end=m.end()+e.start() if e else len(d)
+            txt=d[m.start():end]
+            out.append(txt[:18000])
+          alltext='\n'.join(out)
+          Path('report/FASTBOOT_DENIAL_GHIDRA.txt').write_text(alltext)
+          print('SOURCE_BYTES',len(d),'FOCUSED_BYTES',len(alltext))
+          print(alltext[:65000])
+          PY
+      - name: Archive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_DENIAL_GHIDRA
+          path: report/
+          retention-days: 14
