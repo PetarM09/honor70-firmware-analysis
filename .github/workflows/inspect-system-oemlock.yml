@@ -1,0 +1,139 @@
+name: Honor70 Inspect Stock Android OEM Unlock Services
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-system-oemlock.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Download stock firmware pieces
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p parts report extracted
+          gh release download v8.0.0.290 --repo "$GITHUB_REPOSITORY" --pattern "HONOR70_FW_part_*" --dir parts
+          df -h .
+      - name: Prepare stock system image and free space
+        run: |
+          python3 - <<'PY'
+          import bisect, zipfile, shutil, struct
+          from pathlib import Path
+          paths=sorted(Path('parts').glob('HONOR70_FW_part_*'))
+          assert len(paths)==14
+          class Joined:
+            def __init__(self,ps):
+              self.fs=[p.open('rb') for p in ps]
+              self.offs=[0];self.pos=0
+              for p in ps:self.offs.append(self.offs[-1]+p.stat().st_size)
+            def tell(self):return self.pos
+            def seekable(self):return True
+            def seek(self,n,w=0):self.pos=[0,self.pos,self.offs[-1]][w]+n;return self.pos
+            def read(self,n=-1):
+              if n<0:n=self.offs[-1]-self.pos
+              n=min(n,max(0,self.offs[-1]-self.pos));out=bytearray()
+              while n:
+                i=bisect.bisect_right(self.offs,self.pos)-1
+                if i>=len(self.fs):break
+                c=min(n,self.offs[i+1]-self.pos)
+                self.fs[i].seek(self.pos-self.offs[i]);b=self.fs[i].read(c)
+                if len(b)!=c:raise IOError('short read in joined firmware')
+                out+=b;self.pos+=c;n-=c
+              return bytes(out)
+            def close(self):
+              for f in self.fs:f.close()
+          joined=Joined(paths)
+          try:
+            with zipfile.ZipFile(joined) as z:
+              e=z.getinfo('Software/dload/update_sd_base.zip')
+              assert shutil.disk_usage('.').free > e.file_size+1024**3, 'Need more disk space'
+              with z.open(e) as src,open('base.zip','wb') as dst:
+                shutil.copyfileobj(src,dst,8*1024*1024)
+          finally:joined.close()
+          shutil.rmtree('parts')
+          with zipfile.ZipFile('base.zip') as z:
+            e=z.getinfo('image/system.img')
+            with z.open(e) as src,open('system.sparse','wb') as dst:
+              shutil.copyfileobj(src,dst,8*1024*1024)
+          Path('base.zip').unlink()
+          with open('system.sparse','rb') as fi:
+            h=fi.read(28)
+            magic,major,minor,fh,ch,bs,blocks,num_chunks,checksum=struct.unpack('<IHHHHIIII',h)
+            assert magic==0xed26ff3a and major==1
+            assert blocks*bs < 10*1024**3
+            fi.seek(fh)
+            with open('system.raw','wb') as fo:
+              for i in range(num_chunks):
+                typ,unused,n,tot=struct.unpack('<HHII',fi.read(ch))
+                size=n*bs
+                if typ==0xcac1:
+                  assert tot==ch+size
+                  while size:
+                    b=fi.read(min(size,8*1024*1024))
+                    if not b:raise IOError('short raw chunk')
+                    fo.write(b);size-=len(b)
+                elif typ==0xcac2:
+                  pat=fi.read(4)
+                  block=pat*(bs//4)
+                  for _ in range(n):fo.write(block)
+                elif typ==0xcac3:fo.seek(size,1)
+                elif typ==0xcac4:fi.read(4)
+                else:raise ValueError('unknown sparse chunk '+hex(typ))
+              fo.truncate(blocks*bs)
+          Path('system.sparse').unlink()
+          print('RAW_SYSTEM_BYTES',Path('system.raw').stat().st_size)
+          PY
+          df -h .
+      - name: Extract system services and inspect methods
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils
+          python3 -m pip install --quiet --break-system-packages androguard
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, zipfile,hashlib
+          report=[]
+          for folder in ['/','/framework','/system/framework']:
+            p=subprocess.run(['dump.erofs','--ls','--path='+folder,'system.raw'],capture_output=True)
+            report.append('=== LS '+folder+' ===\n'+(p.stdout+p.stderr).decode('utf8','replace')[:15000])
+          candidates=['/framework/services.jar','/system/framework/services.jar',
+                      '/framework/services.core.jar','/system/framework/services.core.jar']
+          for name in candidates:
+            p=subprocess.run(['dump.erofs','--cat','--path='+name,'system.raw'],capture_output=True)
+            if p.returncode==0 and p.stdout[:2]==b'PK':
+              d=Path('extracted')/Path(name).name
+              d.write_bytes(p.stdout)
+              report.append('EXTRACTED '+name+' SIZE '+str(len(p.stdout))+' SHA256 '+hashlib.sha256(p.stdout).hexdigest())
+              break
+            report.append('FAILED '+name+' '+p.stderr.decode('utf8','replace')[:350])
+          for p in Path('extracted').glob('*.jar'):
+            with zipfile.ZipFile(p) as z:
+              for item in z.infolist():
+                if not item.filename.endswith('.dex'):continue
+                from androguard.core.dex import DEX
+                dex=DEX(z.read(item))
+                for cls in dex.get_classes():
+                  name=cls.get_name()
+                  if not any(term in name for term in ('PersistentDataBlockService','OemLockService','OemLock','PersistentDataBlockManager')):
+                    continue
+                  report.append('\n===== CLASS '+name+' =====')
+                  for m in cls.get_methods():
+                    report.append('METHOD '+m.get_name()+' '+m.get_descriptor())
+                    if any(tok in m.get_name().lower() for tok in ('oem','unlock','partition','write','digest','getblockdevice')):
+                      if m.get_code() is None:continue
+                      for ins in m.get_code().get_bc().get_instructions():
+                        report.append('   '+ins.get_name()+' '+ins.get_output())
+          Path('report/SYSTEM_OEM_UNLOCK_SERVICES.txt').write_text('\n'.join(report)+'\n')
+          print('REPORT_BYTES',len('\n'.join(report)))
+          print('\n'.join(report)[:37000])
+          PY
+      - name: Archive only text report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_SYSTEM_OEM_UNLOCK_SERVICES
+          path: report/
+          retention-days: 10
