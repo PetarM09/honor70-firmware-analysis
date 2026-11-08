@@ -1,0 +1,89 @@
+name: Honor 70 Trace Exact Unlock State And Command Table
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-exact-unlock.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download verified original ARM64 LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src out
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Investigate unlock global, string pointers and Fastboot command handlers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG, ARM64_OP_IMM, ARM64_OP_MEM
+          import pefile,struct,hashlib,re
+          p=next(Path('src').glob('*.efi'));d=p.read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=d,fast_load=True)
+          log=[]
+          def add(*args):log.append(' '.join(str(q) for q in args))
+          add('LINUXLOADER_SHA256',hashlib.sha256(d).hexdigest())
+          add('GLOBAL_STATE_HEX_1cdfa0_1ce040',d[0x1cdfa0:0x1ce040].hex(' ',1))
+          probes=['flashing unlock','flashing lock','flashing get_unlock_ability','IsAllowUnlock is','Flashing Unlock is not allowed','get_unlock_ability:','oeminfo_id_transform','oem unlock','fastboot flash:slockv1','fastboot flash:rdmodev1','oem frp-unlock']
+          for name in probes:
+            value=name.encode();at=d.find(value)
+            if at<0:
+              add('COMMAND_NOT_FOUND',name);continue
+            add('COMMAND_STRING',name,'RVA',hex(at))
+            ptr=struct.pack('<Q',at)
+            hits=[m.start() for m in re.finditer(re.escape(ptr),d)]
+            add('PTR64_OCCURRENCES',len(hits),[hex(h) for h in hits[:40]])
+            for h in hits[:15]:
+              low=max(0,h-32);high=min(len(d),h+48)
+              add('PTR64_CONTEXT',hex(h),' '.join('%016x'%struct.unpack_from('<Q',d,k)[0] for k in range(low,high-7,8)))
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          ins=list(md.disasm(d[0x1000:0x1b4000],0x1000))
+          add('TOTAL_INSTRUCTIONS',len(ins))
+          # Direct global field xrefs via ADRP+ADD or ADRP+offset, followed by load or store
+          global_base=0x1cdfc8;perm=global_base+0x10
+          for ix,i in enumerate(ins):
+            if i.mnemonic!='adrp' or len(i.operands)<2 or i.operands[1].type!=ARM64_OP_IMM or i.operands[1].imm!=0x1cd000:continue
+            reg=i.operands[0].reg
+            track={reg:0x1cd000}
+            notes=[]
+            for q in ins[ix+1:ix+90]:
+              if q.address>i.address+0x164:break
+              o=q.operands
+              if q.mnemonic=='add' and len(o)>=3 and o[0].type==ARM64_OP_REG and o[1].type==ARM64_OP_REG and o[2].type==ARM64_OP_IMM and o[1].reg in track:
+                track[o[0].reg]=track[o[1].reg]+o[2].imm
+              if q.mnemonic=='mov' and len(o)>=2 and o[0].type==ARM64_OP_REG and o[1].type==ARM64_OP_REG and o[1].reg in track:
+                track[o[0].reg]=track[o[1].reg]
+              for op in o:
+                if op.type==ARM64_OP_MEM and op.mem.base in track:
+                  address=track[op.mem.base]+op.mem.disp
+                  if global_base <= address < global_base+0x90:
+                    mark='*** PERMISSION ***' if address==perm else ''
+                    notes.append((q,address,mark))
+              if q.mnemonic in ('ret','br','blr','b'):break
+              if q.mnemonic=='adrp' and o[0].type==ARM64_OP_REG and o[0].reg==reg:break
+            if notes:
+              add('GLOBAL_REF_START',hex(i.address))
+              for q,addr,mark in notes:
+                add('  GLOBAL_OP',hex(q.address),q.mnemonic,q.op_str,'TARGET',hex(addr),mark)
+          Path('out/UNLOCK_COMMAND_TABLE_AND_GLOBALS.txt').write_text('\n'.join(log)+'\n')
+          print('=== RESULTS ===')
+          for line in log:
+            if any(line.startswith(k) for k in ('LINUX','GLOBAL_STATE','COMMAND_','PTR64_OCCURRENCES','PTR64_CONTEXT','TOTAL_INSTRUCTIONS','GLOBAL_REF_START','  GLOBAL_OP')):
+              print(line[:1000])
+          PY
+      - name: Save report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EXACT_UNLOCK_TRACE
+          path: out/
+          retention-days: 7
