@@ -1,0 +1,111 @@
+name: Honor 70 Analyze Fastboot Unlock Gate
+on:
+  push:
+    paths:
+      - '.github/workflows/analyze-fastboot-gates.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact verified LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p samples output
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir samples
+          ls -lh samples/
+      - name: Install read-only disassembly libraries
+        run: |
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Map important string cross references and surrounding ARM64 instructions
+        run: |
+          python3 - <<'PY'
+          import pefile,re,bisect,hashlib
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG,ARM64_OP_IMM
+          p=next(Path('samples').glob('*.efi'));blob=p.read_bytes()
+          pe=pefile.PE(data=blob,fast_load=True)
+          image_base=pe.OPTIONAL_HEADER.ImageBase
+          lines=[]
+          def emit(*args):lines.append(' '.join(str(x) for x in args))
+          emit('SHA256',hashlib.sha256(blob).hexdigest(),'ImageBase',hex(image_base),'ENTRY_RVA',hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
+          for s in pe.sections:
+            emit('SECTION',s.Name.rstrip(b'\0').decode(errors='replace'),
+                 'RVA',hex(s.VirtualAddress),'FILEOFFSET',hex(s.PointerToRawData),
+                 'RAW_SIZE',hex(s.SizeOfRawData),'VIRTUAL_SIZE',hex(s.Misc_VirtualSize))
+          targets=[
+            b'IsAllowUnlock is',b'Flashing Unlock is not allowed',
+            b'get_unlock_ability:',b'flashing get_unlock_ability',
+            b'flashing unlock',b'flashing lock',b'fastboot stat not match',
+            b'oeminfo_id_transform',b'cannot get oeminfo rdlock type info',
+            b'PHONE Unlocked',b'verify_certify_sign_data',b'get_tlv_sign',
+            b'fastboot_lock_stat_initial',b'oem unlock',
+            b'signature failed',b'signature_verify',b'oeminfo_fb_stp'
+          ]
+          target_va={}
+          for t in targets:
+            ix=blob.find(t)
+            if ix>=0:
+              try:
+                va=image_base+pe.get_rva_from_offset(ix)
+                target_va[va]=t.decode()
+                emit('TARGET',repr(t),'FILE',hex(ix),'VA',hex(va))
+              except Exception as e:emit('TARGET_MAP_FAIL',repr(t),str(e))
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          instructions=[]
+          for s in pe.sections:
+            if not (s.Characteristics & 0x20000000):continue
+            code=blob[s.PointerToRawData:s.PointerToRawData+s.SizeOfRawData]
+            addr=image_base+s.VirtualAddress
+            instructions.extend(md.disasm(code,addr))
+          emit('DECODED_INSTRUCTIONS',len(instructions))
+          xrefs={t:[] for t in target_va}
+          # ADRP / ADD register pairs and ADR, common ARM64 string-literal patterns
+          for i,ins in enumerate(instructions):
+            if ins.mnemonic not in ('adrp','adr') or len(ins.operands)<2:continue
+            if ins.operands[1].type!=ARM64_OP_IMM:continue
+            reg=ins.operands[0].reg
+            page=ins.operands[1].imm
+            if page in target_va:xrefs[page].append((i,ins.address,'direct_adr'))
+            for j in range(i+1,min(i+10,len(instructions))):
+              q=instructions[j]
+              if q.mnemonic=='add' and len(q.operands)>=3:
+                ops=q.operands
+                if ops[0].type==ARM64_OP_REG and ops[1].type==ARM64_OP_REG and ops[2].type==ARM64_OP_IMM:
+                  if ops[1].reg==reg:
+                    loc=page+ops[2].imm
+                    if loc in target_va:xrefs[loc].append((j,ins.address,'adrp_add'))
+              if q.mnemonic in ('b','bl','ret','br'):break
+          for va,name in target_va.items():
+            hits=xrefs[va]
+            emit('\n===== XREF',repr(name),'VA',hex(va),'COUNT',len(hits),'=====')
+            for ix,adr,kind in hits[:8]:
+              emit('REFERENCE',hex(instructions[ix].address),'ADRP_OR_ADR',hex(adr),'KIND',kind)
+              lo=max(ix-14,0);hi=min(ix+30,len(instructions))
+              for q in instructions[lo:hi]:
+                emit(' ',hex(q.address),q.mnemonic,q.op_str)
+          # Extract broader raw disassembly near known prior offsets, if those addresses map directly.
+          for rv in [0x12cf8,0x12e90,0x136a4]:
+            va=image_base+rv
+            ix=bisect.bisect_left([i.address for i in instructions],va)
+            emit('\nPRIOR_CANDIDATE_RVA',hex(rv))
+            for q in instructions[max(0,ix-12):ix+36]:
+              emit(' ',hex(q.address),q.mnemonic,q.op_str)
+          Path('output/FASTBOOT_GATE_XREFS.txt').write_text('\n'.join(lines)+'\n')
+          # Summary in CI logs only: avoid overwhelming output
+          for line in lines:
+            if line.startswith(('SHA256','SECTION','TARGET','DECODED','=====','REFERENCE','PRIOR')):
+              print(line)
+          PY
+      - name: Upload full analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_GATE_XREFS
+          path: output/
+          retention-days: 7
