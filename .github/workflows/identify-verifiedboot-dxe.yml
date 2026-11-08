@@ -1,0 +1,42 @@
+name: Honor70 Identify VerifiedBootDxe Provider Name
+on:
+  push:
+    paths:
+      - '.github/workflows/identify-verifiedboot-dxe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  name:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get compressed XBL tree and matched protocol module
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p xbl report
+          gh run download 42537571936 --repo "$GITHUB_REPOSITORY" --name HONOR70_XBL_VERIFIED_BOOT_MODULE_DISCOVERY --dir xbl
+      - name: Link GUID matched file identity to UEFI driver name
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('xbl/PARSER_XBL_LOG.txt').read_text(errors='replace').splitlines()
+          targets=['a25f5839-4d55-428f-8f0b-5ce1d565f53e','VerifiedBoot','File 0:','Name:']
+          lines=[]
+          for i,line in enumerate(s):
+              if any(t.lower() in line.lower() for t in targets[:2]):
+                  lines.append('\n===== MATCH LINE '+str(i+1)+' =====\n'+'\n'.join(s[max(0,i-5):min(len(s),i+15)]))
+          out='\n'.join(lines)
+          Path('report/VERIFIEDBOOT_DXE_DRIVER_IDENTITY.txt').write_text(out)
+          print('XBL_LOG_LINES',len(s),'IDENTITY_MATCHES',len(lines))
+          print(out[:21000])
+          PY
+      - name: Save identity research
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_XBL_VERIFIEDBOOT_DRIVER_IDENTITY
+          path: report/
+          retention-days: 14
