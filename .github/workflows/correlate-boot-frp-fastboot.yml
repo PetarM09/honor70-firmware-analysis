@@ -1,0 +1,54 @@
+name: Honor70 Correlate Boot FRP and Fastboot Dispatch
+on:
+  push:
+    paths:
+      - '.github/workflows/correlate-boot-frp-fastboot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download exact firmware research outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src/system src/abl report
+          gh run download 42537052942 --repo "$GITHUB_REPOSITORY" --name HONOR70_STOCK_OEMLOCK_HAL_STARTUP --dir src/system
+          gh run download 42537109793 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src/abl
+      - name: Extract two system startup and ABL response paths
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sysfile=Path('src/system/STOCK_SYSTEM_OEMLOCK_HAL_STARTUP.txt').read_text(errors='replace')
+          abl=Path('src/abl/GHIDRA_ABL_DECOMPILATION.txt').read_text(errors='replace')
+          out=[]
+          for name in ['lambda$onStart$0','formatIfOemUnlockEnabled','onStart','getOemLock']:
+             match=re.search(r'^=== (.*?) :: '+re.escape(name)+r' [^\n]* ===$',sysfile,re.M)
+             if match is None:
+                 out.append('MISSING SYSTEM '+name);continue
+             nxt=re.search(r'^=== .* :: ',sysfile[match.end():],re.M)
+             end=match.end()+nxt.start() if nxt else len(sysfile)
+             out.append('===== SYSTEM '+name+' =====\n'+sysfile[match.start():end][:14500])
+          for address in ['00026598','00024154','00027e94','00027e88','00027b04','00027b18','00020e2c','0001a0c8']:
+             match=re.search(r'^========== TARGET '+address+r' =+',abl,re.M|re.I)
+             if match is None:
+                 out.append('MISSING ABL '+address);continue
+             nxt=re.search(r'^========== TARGET ',abl[match.end():],re.M)
+             end=match.end()+nxt.start() if nxt else len(abl)
+             out.append('===== ABL '+address+' =====\n'+abl[match.start():end][:22000])
+          text='\n'.join(out)
+          Path('report/FRP_STARTUP_FASTBOOT_DISPATCH.txt').write_text(text)
+          print('SOURCE_SIZE',len(sysfile),len(abl),'EXTRACT',len(text))
+          print(text[:61000])
+          PY
+      - name: Save exact code paths
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOOT_FRP_FASTBOOT_DISPATCH
+          path: report/
+          retention-days: 14
