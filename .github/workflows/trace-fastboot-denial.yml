@@ -1,0 +1,70 @@
+name: Honor70 Trace Fastboot Command Denial Filter
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-fastboot-denial.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Fetch verified ABL and disassembler
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p original results
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir original
+          python3 -m pip install --quiet --break-system-packages pefile capstone
+      - name: Analyze Fastboot command denied error sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          import pefile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_IMM,ARM64_OP_REG
+          p=next(Path('original').glob('*.efi'))
+          b=p.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=b,fast_load=True);md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          all_ins=[]
+          for sec in pe.sections:
+            if sec.Characteristics&0x20000000:
+              all_ins+=list(md.disasm(sec.get_data(),pe.OPTIONAL_HEADER.ImageBase+sec.VirtualAddress))
+          needles=['Command not allowed','Command Not Allowed','not allowed','not support','not permitted','unlock','getvar','flashing']
+          out=[]
+          for text in needles:
+            out.append('===== STRING QUERY '+text+' =====')
+            matches=list(re.finditer(re.escape(text.encode()),b,re.I))
+            for m in matches[:35]:
+              start=m.start()
+              while start>0 and 32<=b[start-1]<127 and m.start()-start<200:start-=1
+              stop=b.find(b'\x00',m.end(),min(m.end()+250,len(b)))
+              if stop<0:stop=min(len(b),m.end()+250)
+              try:addr=pe.get_rva_from_offset(start)+pe.OPTIONAL_HEADER.ImageBase
+              except Exception:addr=start
+              out.append(f'STRING file=0x{start:x} VA=0x{addr:x} content={b[start:stop].decode("utf8","replace")!r}')
+              if text.lower() in ('command not allowed','command not allowed','not allowed','not permitted'):
+                for i,inst in enumerate(all_ins):
+                  if inst.mnemonic=='adr' and len(inst.operands)>=2 and inst.operands[1].type==ARM64_OP_IMM and inst.operands[1].imm==addr:
+                    out.append(f'DIRECT_XREF 0x{inst.address:x}')
+                  if inst.mnemonic=='adrp' and len(inst.operands)>=2 and inst.operands[1].type==ARM64_OP_IMM and (inst.operands[1].imm>>12)==(addr>>12):
+                    for q in all_ins[i+1:i+10]:
+                      if q.mnemonic=='add' and len(q.operands)>=3 and q.operands[0].type==ARM64_OP_REG and q.operands[1].type==ARM64_OP_REG and q.operands[2].type==ARM64_OP_IMM and q.operands[1].reg==inst.operands[0].reg and inst.operands[1].imm+q.operands[2].imm==addr:
+                        out.append(f'ADRP_ADD_XREF 0x{inst.address:x} .. 0x{q.address:x}')
+                        for z in all_ins[max(0,i-22):min(len(all_ins),i+34)]:out.append(f'   0x{z.address:x} {z.mnemonic} {z.op_str}')
+                        break
+          Path('results/FASTBOOT_DENIAL_REFERENCES.txt').write_text('\n'.join(out)+'\n')
+          print('REPORT_LINES',len(out))
+          print('\n'.join(out)[:51000])
+          PY
+      - name: Upload denial reference evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_DENIAL_XREFS
+          path: results/
+          retention-days: 10
