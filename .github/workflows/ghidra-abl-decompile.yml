@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - '.github/workflows/ghidra-abl-decompile.yml'
+      - 'tools/ghidra/Honor70ABLDecompile.java'
   workflow_dispatch:
 permissions:
   contents: read
