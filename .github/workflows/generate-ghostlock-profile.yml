@@ -18,10 +18,8 @@ jobs:
         run: |
           mkdir -p images report
           gh run download 42530238358 --repo "$GITHUB_REPOSITORY" --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE --dir images
-          sha256sum images/boot.img
-          echo "EXPECTED: 5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256"
-          printf '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  images/boot.img\n' | sha256sum --check
-      - name: Fetch pinned upstream GhostLock profile extractor
+          echo '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  images/boot.img' | sha256sum --check
+      - name: Fetch pinned upstream extractor
         run: |
           mkdir upstream
           git -C upstream init -q
@@ -36,7 +34,7 @@ jobs:
           cd upstream/tools/extract_rs
           cargo build --release > ../../../report/CARGO_BUILD.txt 2>&1 || { tail -100 ../../../report/CARGO_BUILD.txt; exit 1; }
           find ../.. -name ghostlock-extract -type f -executable -print
-      - name: Recover kernel kallsyms using independent extractor
+      - name: Independently recover kernel kallsyms
         run: |
           python3 -m pip install --quiet --break-system-packages vmlinux-to-elf
           mkdir -p work
@@ -53,7 +51,10 @@ jobs:
           PY
           vmlinux-to-elf work/Image work/vmlinux.elf > report/VMLINUX_RECOVERY.txt 2>&1
           nm -n --defined-only work/vmlinux.elf > work/kallsyms.txt
-          grep -E ' (remove_waiter|_text|init_task|init_cred)        run: |
+          grep -E ' (remove_waiter|_text|init_task|init_cred)$' work/kallsyms.txt | head -20 || true
+          echo "KALLSYMS_LINES=$(wc -l < work/kallsyms.txt)"
+      - name: Generate profile candidate without executing exploit
+        run: |
           set +e
           EXTRACTOR=$(find upstream -name ghostlock-extract -type f -executable | head -1)
           echo "RUNNING=$EXTRACTOR"
@@ -67,30 +68,7 @@ jobs:
           fi
           printf 'Candidate profile is UNVERIFIED and not approved for execution on device.\nExact kernel release must match adb shell uname -r.\nWrong offsets can trigger kernel memory corruption or reboot.\n' > report/SAFETY.txt
           exit 0
-      - name: Upload read-only extraction reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: HONOR70_GHOSTLOCK_EXPERIMENTAL_PROFILE
-          path: report/
-          retention-days: 7
- work/kallsyms.txt | head -20 || true
-          echo "KALLSYMS_LINES=$(wc -l < work/kallsyms.txt)"
-      - name: Generate candidate profile using exact stock kernel
-        run: |
-          set +e
-          EXTRACTOR=$(find upstream -name ghostlock-extract -type f -executable | head -1)
-          echo "RUNNING=$EXTRACTOR"
-          "$EXTRACTOR" images/boot.img --format conf --out report/HONOR70_CANDIDATE.conf > report/EXTRACTOR_LOG.txt 2>&1
-          RC=$?
-          echo "EXTRACTOR_EXIT=$RC"
-          tail -100 report/EXTRACTOR_LOG.txt
-          if [ -f report/HONOR70_CANDIDATE.conf ]; then
-            echo "=== CANDIDATE PROFILE ==="
-            cat report/HONOR70_CANDIDATE.conf
-          fi
-          printf 'Candidate profile is UNVERIFIED and not approved for execution on device.\nExact kernel release must match adb shell uname -r.\nWrong offsets can trigger kernel memory corruption or reboot.\n' > report/SAFETY.txt
-          exit 0
-      - name: Upload read-only extraction reports
+      - name: Save offline profile extraction results
         uses: actions/upload-artifact@v4
         with:
           name: HONOR70_GHOSTLOCK_EXPERIMENTAL_PROFILE
