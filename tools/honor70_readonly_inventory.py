@@ -55,7 +55,7 @@ def main() -> int:
         "Host timestamp: "+time.strftime("%Y-%m-%d %H:%M:%S"),
     ]
     for label, command in CHECKS:
-        rc, output = adb(["shell", "sh", "-c", command])
+        rc, output = adb(["shell", command])
         sections.extend(["", "=== "+label+" (rc="+str(rc)+") ===", output[:12000] or "(empty/unavailable)"])
     out = pathlib.Path.cwd() / "HONOR70_RUNTIME_READONLY_NEXT.txt"
     out.write_text("\n".join(sections) + "\n", encoding="utf-8")
