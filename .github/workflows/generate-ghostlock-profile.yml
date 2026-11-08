@@ -36,6 +36,45 @@ jobs:
           cd upstream/tools/extract_rs
           cargo build --release > ../../../report/CARGO_BUILD.txt 2>&1 || { tail -100 ../../../report/CARGO_BUILD.txt; exit 1; }
           find ../.. -name ghostlock-extract -type f -executable -print
+      - name: Recover kernel kallsyms using independent extractor
+        run: |
+          python3 -m pip install --quiet --break-system-packages vmlinux-to-elf
+          mkdir -p work
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,struct
+          img=Path('images/boot.img').read_bytes()
+          assert img[:8]==b'ANDROID!'
+          assert struct.unpack_from('<I',img,40)[0]==3
+          size=struct.unpack_from('<I',img,8)[0]
+          data=img[4096:4096+size]
+          assert hashlib.sha256(data).hexdigest()=='bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece'
+          Path('work/Image').write_bytes(data)
+          PY
+          vmlinux-to-elf work/Image work/vmlinux.elf > report/VMLINUX_RECOVERY.txt 2>&1
+          nm -n --defined-only work/vmlinux.elf > work/kallsyms.txt
+          grep -E ' (remove_waiter|_text|init_task|init_cred)        run: |
+          set +e
+          EXTRACTOR=$(find upstream -name ghostlock-extract -type f -executable | head -1)
+          echo "RUNNING=$EXTRACTOR"
+          "$EXTRACTOR" images/boot.img --kallsyms work/kallsyms.txt --format conf --out report/HONOR70_CANDIDATE.conf > report/EXTRACTOR_LOG.txt 2>&1
+          RC=$?
+          echo "EXTRACTOR_EXIT=$RC"
+          tail -100 report/EXTRACTOR_LOG.txt
+          if [ -f report/HONOR70_CANDIDATE.conf ]; then
+            echo "=== CANDIDATE PROFILE ==="
+            cat report/HONOR70_CANDIDATE.conf
+          fi
+          printf 'Candidate profile is UNVERIFIED and not approved for execution on device.\nExact kernel release must match adb shell uname -r.\nWrong offsets can trigger kernel memory corruption or reboot.\n' > report/SAFETY.txt
+          exit 0
+      - name: Upload read-only extraction reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GHOSTLOCK_EXPERIMENTAL_PROFILE
+          path: report/
+          retention-days: 7
+ work/kallsyms.txt | head -20 || true
+          echo "KALLSYMS_LINES=$(wc -l < work/kallsyms.txt)"
       - name: Generate candidate profile using exact stock kernel
         run: |
           set +e
