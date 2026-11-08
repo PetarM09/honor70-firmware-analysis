@@ -1,0 +1,46 @@
+name: Honor70 Explain Fastboot Unlock Handler Responses
+on:
+  push:
+    paths:
+      - '.github/workflows/explain-fastboot-unlock-responses.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact ABL Ghidra analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src out
+          gh run download 42534601904 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src
+      - name: Print get_unlock_ability, unlock, GETVAR logic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('src/GHIDRA_ABL_DECOMPILATION.txt').read_text(errors='replace')
+          wanted=['00025b88','00025c04','00025c0c','00027850','00026598','000433a8','000433d8','000433e8']
+          out=[]
+          for k in wanted:
+            p=re.search('^========== TARGET '+k+' =+',d,re.M|re.I)
+            if p is None:
+              out.append('MISSING '+k);continue
+            m=re.search('^========== TARGET ',d[p.end():],re.M)
+            end=p.end()+m.start() if m else len(d)
+            out.append(d[p.start():end][:36000])
+          text='\n'.join(out)
+          Path('out/EXACT_FASTBOOT_UNLOCK_HANDLER_RESPONSE.txt').write_text(text)
+          print('SIZE',len(text))
+          print(text[:65000])
+          PY
+      - name: Upload exact functions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_UNLOCK_HANDLER_RESPONSES
+          path: out/
+          retention-days: 14
