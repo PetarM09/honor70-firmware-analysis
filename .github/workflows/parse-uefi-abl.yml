@@ -1,0 +1,77 @@
+name: Honor 70 Parse ABL UEFI Firmware Volume
+on:
+  push:
+    paths:
+      - '.github/workflows/parse-uefi-abl.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download verified ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous report
+          gh run download 42527019027 --repo "$GITHUB_REPOSITORY" --name HONOR70_DEEP_BOOTCHAIN --dir previous
+          ls -l previous/keybins/abl.elf
+      - name: Inspect UEFI FV and FFS entries
+        run: |
+          python3 - <<'PY'
+          import struct,uuid,hashlib,math
+          from pathlib import Path
+          d=Path('previous/keybins/abl.elf').read_bytes()
+          start=d.find(b'_FVH')-40
+          lines=[]
+          def out(*x):lines.append(' '.join(str(y) for y in x))
+          out('ABL SHA256',hashlib.sha256(d).hexdigest())
+          out('FV HEADER OFFSET',hex(start),'SIGNATURE_OFFSET',hex(start+40))
+          if start<0:raise RuntimeError('No FV header')
+          fvlen,=struct.unpack_from('<Q',d,start+32)
+          attrs,=struct.unpack_from('<I',d,start+44)
+          header_len,checksum,ext_off=struct.unpack_from('<HHH',d,start+48)
+          out('FV_Length',hex(fvlen),'Attributes',hex(attrs),'HeaderLength',hex(header_len),'Checksum',hex(checksum),'ExtHeader',hex(ext_off))
+          out('FV_FS_GUID',str(uuid.UUID(bytes_le=d[start+16:start+32])))
+          checksum_words=struct.unpack_from('<'+'H'*(header_len//2),d,start)
+          out('FV_Header_Checksum_Mod65536',sum(checksum_words)&0xffff)
+          out('FV_BLOCKMAP_FIRST',d[start+56:start+88].hex())
+          stop=min(len(d),start+fvlen)
+          pos=(start+header_len+7)&~7
+          count=0
+          while pos+24<=stop and count<50:
+            head=d[pos:pos+24]
+            if head[:24]==b'\xff'*24 or head[:24]==b'\x00'*24:
+              out('FS_FOOTER_OR_PADDING',hex(pos),'FIRST16',head[:16].hex())
+              break
+            guid=str(uuid.UUID(bytes_le=head[:16]))
+            integrity=head[16:18].hex()
+            ft=head[18];at=head[19]
+            sz=head[20]|head[21]<<8|head[22]<<16
+            state=head[23]
+            out('FFS_ENTRY',count,'at',hex(pos),'guid',guid,'type',hex(ft),'attributes',hex(at),'size',sz,'state',hex(state),'integrity',integrity)
+            if sz<24 or pos+sz>stop:
+              out('FFS_INVALID_SIZE_OR_CONTAINER',hex(pos),sz,'END',hex(stop),'HEAD96',d[pos:pos+96].hex());break
+            spos=pos+24;end=pos+sz
+            for j in range(8):
+              if spos+4>end:break
+              ssz=d[spos]|d[spos+1]<<8|d[spos+2]<<16
+              typ=d[spos+3]
+              out('  SECTION',j,'at',hex(spos),'size',ssz,'type',hex(typ),'head32',d[spos:spos+32].hex())
+              if ssz<4 or spos+ssz>end:break
+              spos=(spos+ssz+3)&~3
+            pos=(pos+sz+7)&~7
+            count+=1
+          out('TOTAL_PARSED_FFS_ENTRIES',count)
+          Path('report/UEFI_FV_REPORT.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+      - name: Save report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_UEFI_FV_REPORT
+          path: report/
+          retention-days: 7
