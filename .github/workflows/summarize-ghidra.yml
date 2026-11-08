@@ -1,0 +1,46 @@
+name: Honor70 Summarize Ghidra Permission Evidence
+on:
+  push:
+    paths:
+      - '.github/workflows/summarize-ghidra.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read saved Ghidra analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42533269683 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('src/GHIDRA_ABL_DECOMPILATION.txt').read_text(errors='replace')
+          parts=re.split(r'(?=^========== TARGET )',d,flags=re.M)
+          out=[]
+          for p in parts:
+              if not p.startswith('========== TARGET '):continue
+              label=p.splitlines()[0]
+              if any(x in label.lower() for x in ('00027850','00025b88','000436','00013008','00012cf8','000433a8','000433d8','000433e8','000136a4')):
+                  out.append(label)
+                  out.append(p[:12500])
+          for token in ('DAT_001cdfd8','Flashing Unlock is not allowed','GLOBAL_UNLOCK_PERMISSION_REFERENCE_XREFS'):
+              out.append('\n===== OCCURRENCES '+token+' =====')
+              for m in list(re.finditer(re.escape(token),d,re.I))[:12]:
+                  out.append(d[max(0,m.start()-350):m.end()+550])
+          Path('report/KEY_GHIDRA_FINDINGS.txt').write_text('\n'.join(out))
+          print('EXTRACT_BYTES',len('\n'.join(out)))
+          print('\n'.join(out)[:42000])
+          PY
+      - name: Save evidence summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GHIDRA_PERMISSION_SUMMARY
+          path: report/
+          retention-days: 10
