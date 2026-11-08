@@ -78,19 +78,29 @@ jobs:
           def note(s):lines.append(s)
           header_offsets=[m.start() for m in re.finditer(b'EFI PART',gpt)]
           note('GPT_HEADER_OFFSETS '+','.join(hex(o) for o in header_offsets))
-          for hd in header_offsets:
+          Path('results/gpt_both0.bin').write_bytes(gpt)
+          total=0
+          for lun,hd in enumerate(header_offsets):
               if hd+92>len(gpt):continue
               revision,hlen=struct.unpack_from('<II',gpt,hd+8)
               current_lba,backup_lba,first_usable,last_usable=struct.unpack_from('<QQQQ',gpt,hd+24)
               table_lba,num_entries,entry_size=struct.unpack_from('<QII',gpt,hd+72)
-              note(f'HEADER at 0x{hd:x} revision=0x{revision:x} header_size={hlen} current_lba={current_lba} part_table_lba={table_lba} num_entries={num_entries} entry_size={entry_size}')
-              if entry_size not in (128,256) or num_entries>2048:continue
-              # Primary GPT partition entries normally immediately follow the primary header at LBA2.
-              base=table_lba*512
+              if current_lba!=1:
+                  continue  # skip backup GPTs for the same UFS LUN
+              note(f'LUN_HEADER at 0x{hd:x} revision=0x{revision:x} header_size={hlen} current_lba={current_lba} table_lba={table_lba} entries={num_entries} entry_size={entry_size}')
+              if entry_size not in (128,256) or num_entries>2048:
+                  note('SKIPPED_UNEXPECTED_ENTRY_SIZE');continue
+              # UFS partition tables have 4096-byte LBAs. The entire GPT for each LUN
+              # is concatenated in this 270336-byte update image.
+              logical_sector=4096
+              segment_start=hd-logical_sector
+              base=segment_start+table_lba*logical_sector
               if base+entry_size*num_entries>len(gpt):
-                  base=hd+512
-              if base+entry_size*num_entries>len(gpt):
-                  note('  ENTRY_TABLE_OUTSIDE_FIRMWARE_BUFFER');continue
+                  note('ENTRY_TABLE_OUTSIDE_BUFFER');continue
+              import zlib
+              expected_crc=struct.unpack_from('<I',gpt,hd+88)[0]
+              actual_crc=zlib.crc32(gpt[base:base+entry_size*num_entries]) & 0xffffffff
+              note(f'ENTRY_CRC32 expected=0x{expected_crc:08x} actual=0x{actual_crc:08x} valid={expected_crc==actual_crc}')
               for i in range(num_entries):
                   off=base+i*entry_size
                   e=gpt[off:off+entry_size]
@@ -98,16 +108,11 @@ jobs:
                   first,last,attrs=struct.unpack_from('<QQQ',e,32)
                   name=e[56:128].decode('utf-16le','replace').split('\x00')[0]
                   if not name.strip():continue
-                  guid=str(uuid.UUID(bytes_le=e[:16]))
-                  note(f'PARTITION {i:03d} {name} first={first} last={last} sectors={last-first+1} guid={guid}')
-              break
-          # Some vendors package GPT entries without a conventional location:
-          if not any(s.startswith('PARTITION ') for s in lines):
-              note('STANDARD_GPT_PARSE_DID_NOT_FIND_PARTITIONS')
-              for word in ['efisp','gbl','frp','misc','oeminfo','devinfo','abl','xbl','boot','rpm']:
-                  pattern=word.encode('utf-16le')
-                  indexes=[m.start() for m in re.finditer(re.escape(pattern),gpt,re.I)]
-                  note(word+' UTF16_OCCURRENCES '+','.join(hex(x) for x in indexes[:20]))
+                  total+=1
+                  note(f'PARTITION LUNheader=0x{hd:x} index={i:03d} name={name} first={first} last={last} sectors={last-first+1}')
+          note('TOTAL_PARTITIONS '+str(total))
+          names=[x.lower() for x in lines if x.startswith('PARTITION ')]
+          note('EFISP_OR_GBL_NAME_FOUND '+str(any('efisp' in x or 'gbl' in x for x in names)))
           Path('results/GPT_GBL_EFISP_PARTITIONS.txt').write_text('\n'.join(lines)+'\n')
           print('\n'.join(lines)[:25000])
           PY
