@@ -1,0 +1,62 @@
+name: Honor 70 Trace Vendor Bootloader OEMINFO Record
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-vendor-oeminfo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  examine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Retrieve verified vendor libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p origin result
+          gh run download 42528235200 --repo "$GITHUB_REPOSITORY" --name HONOR70_VENDOR_SECURITY --dir origin
+          python3 -m pip install --quiet --break-system-packages capstone pyelftools
+      - name: Disassemble Android-side OEMINFO lock handler and AntiTheft
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib
+          out=[]
+          for p in Path('origin/extracted').glob('*.so'):
+            if p.name not in ('libBootloaderOeminfo.so','vendor.honor.hardware.honorantitheft@1.0-impl.so','liboeminfo.so'):continue
+            data=p.read_bytes()
+            out.append('=== FILE '+p.name+' SHA256 '+hashlib.sha256(data).hexdigest()+' ===')
+            with p.open('rb') as f:
+              elf=ELFFile(f)
+              funcs=[]
+              for section in elf.iter_sections():
+                if section.header.sh_type not in ('SHT_DYNSYM','SHT_SYMTAB'):continue
+                for sym in section.iter_symbols():
+                  if sym.entry.st_info.type=='STT_FUNC' and sym.entry.st_size:
+                    name=sym.name
+                    if p.name=='libBootloaderOeminfo.so' or ('AntiTheft' in name and any(w in name for w in ('Lock','Theft','Prop'))):
+                      funcs.append((name,sym.entry.st_value,sym.entry.st_size))
+              md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+              for name,addr,size in funcs[:35]:
+                out.append('=== SYMBOL '+name+' VA 0x%x SIZE %d ==='%(addr,size))
+                for sec in elf.iter_sections():
+                  sh=sec.header
+                  if sh.sh_type=='SHT_PROGBITS' and sh.sh_addr<=addr and addr+size<=sh.sh_addr+sh.sh_size:
+                    code=sec.data()[addr-sh.sh_addr:addr-sh.sh_addr+size]
+                    for x in md.disasm(code,addr):
+                      out.append('0x%x %s %s'%(x.address,x.mnemonic,x.op_str))
+                    break
+          Path('result/VENDOR_BOOTLOADER_HANDLERS.txt').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out)[:45000])
+          PY
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VENDOR_LOCK_HANDLER_TRACE
+          path: result/
+          retention-days: 7
