@@ -1,0 +1,103 @@
+name: Honor 70 Bootchain Static Inspection
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-bootchain.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Download release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p parts report
+          gh release download v8.0.0.290 --repo "$GITHUB_REPOSITORY" --pattern "HONOR70_FW_part_*" --dir parts
+      - name: Extract and inspect original bootchain
+        run: |
+          python3 - <<'PY'
+          import bisect,zipfile,shutil,subprocess,hashlib,re
+          from pathlib import Path
+          parts=sorted(Path('parts').glob('HONOR70_FW_part_*'))
+          assert [p.name for p in parts]==[f'HONOR70_FW_part_aa{chr(97+i)}' for i in range(14)]
+          class SplitReader:
+              def __init__(self,paths):
+                  self.f=[p.open('rb') for p in paths]
+                  self.end=[0]
+                  for p in paths:self.end.append(self.end[-1]+p.stat().st_size)
+                  self.pos=0
+              def tell(self):return self.pos
+              def seekable(self):return True
+              def seek(self,n,w=0):
+                  self.pos=[0,self.pos,self.end[-1]][w]+n
+                  if self.pos<0:raise ValueError('seek')
+                  return self.pos
+              def read(self,n=-1):
+                  if n<0:n=self.end[-1]-self.pos
+                  n=min(n,self.end[-1]-self.pos)
+                  out=bytearray()
+                  while n:
+                      i=bisect.bisect_right(self.end,self.pos)-1
+                      if i>=len(self.f):break
+                      count=min(n,self.end[i+1]-self.pos)
+                      self.f[i].seek(self.pos-self.end[i])
+                      data=self.f[i].read(count)
+                      if len(data)!=count:raise IOError('Incomplete part')
+                      out.extend(data);n-=count;self.pos+=count
+                  return bytes(out)
+              def close(self):
+                  for f in self.f:f.close()
+          sr=SplitReader(parts)
+          base=Path('update_sd_base.zip')
+          try:
+              with zipfile.ZipFile(sr) as z:
+                  e=z.getinfo('Software/dload/update_sd_base.zip')
+                  assert shutil.disk_usage('.').free>e.file_size+1024**3,'Insufficient disk space'
+                  with z.open(e) as fi,base.open('wb') as fo:shutil.copyfileobj(fi,fo,8*1024*1024)
+          finally:sr.close()
+          names=['image/abl.elf','image/xbl.elf','image/xbl_config.elf',
+                 'image/tz.mbn','image/vbmeta.img','image/vbmeta_system.img',
+                 'image/featenabler.mbn','image/uefi_sec.mbn',
+                 'gpt_both0.bin','META-INF/com/google/android/updater-script']
+          pattern=re.compile(rb'(?i)(unlock|lockstate|locked|fastboot|oeminfo|unlock_ability|flashing|verifiedboot|secureboot|debug|auth|rollback|verity)')
+          summary=[]
+          with zipfile.ZipFile(base) as z:
+              for name in names:
+                  if name not in z.namelist():continue
+                  data=z.read(name)
+                  sha=hashlib.sha256(data).hexdigest()
+                  out=[f'\n=== {name} ===',f'SIZE {len(data)}',f'SHA256 {sha}',f'HEAD32 {data[:32].hex()}']
+                  hit=0
+                  for m in re.finditer(rb'[ -~]{5,}',data):
+                      s=m.group(0)
+                      if pattern.search(s):
+                          out.append(f'0x{m.start():08x} {s[:220].decode("ascii","replace")}')
+                          hit+=1
+                          if hit>=150:
+                              out.append('TRUNCATED_AT_150_HITS');break
+                  out.append(f'PRINTED_MATCHES {hit}')
+                  summary.extend(out)
+                  if name.endswith('.elf'):
+                      target=Path('report')/(Path(name).name+'.elfheader.txt')
+                      p=Path('/tmp')/Path(name).name
+                      p.write_bytes(data)
+                      cmds=[['file',str(p)],['readelf','-h',str(p)]]
+                      with target.open('w') as f:
+                          for cmd in cmds:
+                              v=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+                              f.write('$ '+' '.join(cmd)+'\n'+v.stdout[:12000]+'\n')
+                      p.unlink()
+          Path('report/BOOTCHAIN_ANALYSIS.txt').write_text('\n'.join(summary))
+          print('=== BOOTCHAIN ANALYSIS ===')
+          print('\n'.join(summary)[:42000])
+          PY
+      - name: Upload metadata only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOOTCHAIN_ANALYSIS
+          path: report/
+          retention-days: 7
