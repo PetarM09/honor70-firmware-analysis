@@ -32,3 +32,10 @@ Exact kernel has a potentially vulnerable `remove_waiter()` instruction pattern.
 - Inspect read-only live `PersistentDataBlockService` diagnostic output if available, without dumping block partitions or personal data. Distinguish userspace property from actual on-disk boolean.
 - Trace `VBRwDevice` GUID/protocol implementation, authorization and secure storage backend.
 - Do not erase FRP or write OEMINFO 95/130, ABL/XBL/vbmeta or raw partitions as speculative trials. Unlock results require persistent state readback across reboot with no unauthorized modifications.
+
+## Further validated protocol / GPT inventory
+
+- `FUN_00037ac0` obtains `QCOM_VERIFIEDBOOT_PROTOCOL` whose GUID, decoded from `DAT_001b390c` in the exact stock LinuxLoader, is **`8e5eff91-21b6-47d3-af2b-c15a01e020ec`**. Verified by [ABI/GUID extraction](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/42534863723). This GUID is shared with a public GBL vulnerability write-up; GUID equality alone does not imply the vulnerable boot chain exists on this model.
+- Firmware `gpt_both0.bin` was independently parsed as **six 4-KiB-sector GPT LUNs with all partition-entry CRCs valid**. There are **135 identified partitions**, including `frp`, `oeminfo`, `devinfo`, `abl_a/b`, `xbl_a/b`, `uefisecapp_a/b`. The firmware's GPT contains **neither `efisp` nor a `gbl` partition**; the published unsigned-GBL-from-efisp attack does not have its named entry point on this firmware. [GPT inspection and checksums](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/42535247420).
+- The public GBL attack also needs the ability to modify a boot-time EFI application / efisp from a locked device. No such write channel has been confirmed. No speculative flashing.
+- The Android stock `PersistentDataBlockService` sets `sys.oem_unlock_allowed` even in some exception paths after attempting its FRP last-byte write, so the live system property `1` is **insufficient to establish that bootloader reads `1` from disk**. Read-only live service diagnostics requested; no raw FRP contents should be shared.
