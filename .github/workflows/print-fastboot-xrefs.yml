@@ -1,0 +1,21 @@
+name: Honor 70 Print Fastboot Xrefs
+on:
+  push:
+    paths:
+      - '.github/workflows/print-fastboot-xrefs.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Print saved ARM64 xref analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p output
+          gh run download 42527741436 --repo "$GITHUB_REPOSITORY" --name HONOR70_FASTBOOT_GATE_XREFS --dir output
+          cat output/FASTBOOT_GATE_XREFS.txt
