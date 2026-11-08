@@ -1,0 +1,59 @@
+name: Honor 70 Reverse Unlock Gate Dependencies
+on:
+  push:
+    paths:
+      - '.github/workflows/reverse-gate-dependencies.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact LinuxLoader module
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p orig report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir orig
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Trace detailed helper disassembly
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import hashlib
+          d=next(Path('orig').glob('*.efi')).read_bytes()
+          assert hashlib.sha256(d).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ranges=[
+            ('READ_RUN_MODE',0x30b0,0x3210),
+            ('READ_LOCK_STATE',0x12fa0,0x131a0),
+            ('READ_CURRENT_LOCK_WRAPPER',0x433a0,0x433c8),
+            ('WRITE_LOCK_STATE',0x43688,0x43a20),
+            ('FLASH_OR_CRITICAL_POLICY',0x3da10,0x3dc20),
+            ('OEMINFO_PERMISSION',0x304d0,0x304f0),
+            ('GET_UNLOCK_ABILITY',0x25b88,0x25bf8),
+            ('OEMINFO_COMMON_READ',0x13650,0x13760),
+            ('BOOT_POLICY_INIT',0x23900,0x24080),
+            ('GLOBAL_STATE_SETUP',0x25050,0x252c0),
+          ]
+          output=[]
+          for name,start,end in ranges:
+            lines=[f'=== {name} {start:08x}-{end:08x} ===']
+            for i in md.disasm(d[start:end],start):
+              lines.append(f'{i.address:08x} {i.mnemonic:10} {i.op_str}')
+            output+=lines
+            Path('report/'+name+'.txt').write_text('\n'.join(lines)+'\n')
+            if name!='BOOT_POLICY_INIT':
+              print('\n'.join(lines)[:23000])
+          print('TOTAL_DISASM_LINES',len(output))
+          PY
+      - name: Upload read-only disassembly report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GATE_FUNCTION_DETAILS
+          path: report/
+          retention-days: 7
