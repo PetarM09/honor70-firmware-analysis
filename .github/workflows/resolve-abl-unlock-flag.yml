@@ -1,0 +1,70 @@
+name: Honor 70 Resolve ABL Unlock Flag Uses
+on:
+  push:
+    paths:
+      - '.github/workflows/resolve-abl-unlock-flag.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch original verified ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src output
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Find readers and writers of unlock state fields
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG,ARM64_OP_IMM,ARM64_OP_MEM
+          p=next(Path('src').glob('*.efi'))
+          data=p.read_bytes()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          instructions=list(md.disasm(data[0x1000:0xb0000],0x1000))
+          lines=[]
+          targets={0x1cdfd8:'allow_flag_1cdfd8',0x1cdfc8:'permission_structure'}
+          for k,i in enumerate(instructions):
+            if i.mnemonic!='adrp' or len(i.operands)<2:continue
+            if i.operands[1].type!=ARM64_OP_IMM or i.operands[1].imm !=0x1cd000:continue
+            base_register=i.operands[0].reg
+            regs={base_register:0x1cd000}
+            for j in range(k+1,min(k+70,len(instructions))):
+              q=instructions[j]
+              if q.address != instructions[j-1].address+4:break
+              if q.mnemonic in ('ret','br','blr'):break
+              ops=q.operands
+              # materialize pointers for adrp+add
+              if q.mnemonic=='add' and len(ops)>=3 and ops[0].type==ARM64_OP_REG and ops[1].type==ARM64_OP_REG and ops[2].type==ARM64_OP_IMM:
+                old=regs.get(ops[1].reg)
+                if old is not None:regs[ops[0].reg]=old+ops[2].imm
+              for op in ops:
+                if op.type == ARM64_OP_MEM and op.mem.base in regs:
+                  ptr=regs[op.mem.base]+op.mem.disp
+                  if ptr in targets:
+                    lines.append(f'ADDR {hex(q.address)} {q.mnemonic} {q.op_str} -> {targets[ptr]} (source adrp {hex(i.address)})')
+                    ctx=instructions[max(0,j-5):min(len(instructions),j+8)]
+                    lines+=['  '+hex(v.address)+' '+v.mnemonic+' '+v.op_str for v in ctx]
+              # stop on new adrp overwriting same register and on branch to avoid crossing basic blocks
+              if q.mnemonic == 'adrp' and ops and ops[0].type == ARM64_OP_REG:
+                if ops[0].reg==base_register:break
+              if q.mnemonic in ('b','bl'):
+                if q.mnemonic=='b':break
+          lines=list(dict.fromkeys(lines))
+          Path('output/ALLOW_FLAG_ACCESS.txt').write_text('\n'.join(lines))
+          print('RECORDED_ACCESS_LINES',len(lines))
+          print('\n'.join(lines[:500]))
+          PY
+      - name: Upload read-only trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FLAG_ACCESS
+          path: output/
+          retention-days: 7
