@@ -23,7 +23,9 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          d=Path('input/VERIFIEDBOOT_DXE_GHIDRA.txt').read_text(errors='replace')
+          candidates=list(Path('input').rglob('VERIFIEDBOOT_DXE_GHIDRA.txt'))
+          assert candidates, [str(x) for x in Path('input').rglob('*')]
+          d=candidates[0].read_text(errors='replace')
           blocks=re.split(r'(?=^======== FUNCTION )',d,flags=re.M)
           targets=['0000153c','00003904','00003898','00002814','00002870','00002a1c','00001150','0000147c']
           for t in targets:
