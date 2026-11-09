@@ -1,0 +1,80 @@
+name: Honor70 Inspect Chinese Board AVB Patch Filesystem
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-board-patch-avb-filesystem.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download Board bootchain without reading any phone data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir src
+          unzip -p src/selected_bootchain.zip fastbootimage/patch_avb.img > patch_avb.sparse
+          sha256sum patch_avb.sparse
+      - name: Parse Android sparse header and identify filesystem and AVB data
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,hashlib,re,subprocess
+          p=Path('patch_avb.sparse')
+          with p.open('rb') as fin:
+            h=fin.read(28)
+            magic,major,minor,fh,ch,bs,blocks,num_chunks,checksum=struct.unpack('<IHHHHIIII',h)
+            assert magic==0xed26ff3a and major==1 and bs%512==0
+            assert blocks*bs <= 512*1024*1024
+            fin.seek(fh)
+            with Path('patch_avb.raw').open('wb') as fo:
+              for i in range(num_chunks):
+                typ,unused,n,total=struct.unpack('<HHII',fin.read(ch))
+                length=n*bs
+                if typ==0xcac1:
+                  if total != ch+length:raise Exception('Incorrect RAW chunk length')
+                  while length:
+                    chunk=fin.read(min(length,1024*1024))
+                    if not chunk:raise Exception('Truncated sparse data')
+                    fo.write(chunk);length-=len(chunk)
+                elif typ==0xcac2:
+                  pattern=fin.read(4)
+                  assert total==ch+4
+                  piece=pattern*(bs//4)
+                  for _ in range(n):fo.write(piece)
+                elif typ==0xcac3:
+                  assert total==ch
+                  fo.seek(length,1)
+                elif typ==0xcac4:
+                  assert total==ch+4;fin.read(4)
+                else:raise Exception('Invalid sparse chunk type')
+              fo.truncate(blocks*bs)
+          data=Path('patch_avb.raw').read_bytes()
+          print('SPARSE_IMAGE_BYTES',p.stat().st_size)
+          print('RAW_IMAGE_BYTES',len(data))
+          print('RAW_IMAGE_SHA256',hashlib.sha256(data).hexdigest())
+          print('SUPERBLOCK_EXT4_MAGIC',data[1024+56:1024+58].hex())
+          print('EROF_MAGIC',data[1024:1028].hex())
+          print('AVB0_START',data[:4].hex())
+          for x in [b'patch_hn',b'avbtool',b'AVB0',b'LIBAVB',b'ANDROID!',b'ANDROID!']:
+             pos=[m.start() for m in re.finditer(re.escape(x),data,re.I)]
+             print('MARKER',x.decode('ascii','replace'), 'COUNT',len(pos), 'FIRST',pos[:15])
+          Path('report/PATCH_AVB_FORMAT.txt').write_text(
+             f'SPARSE_IMAGE_BYTES {p.stat().st_size}\nRAW_IMAGE_BYTES {len(data)}\nRAW_SHA256 {hashlib.sha256(data).hexdigest()}\nEXT4_MAGIC {data[1024+56:1024+58].hex()}\n')
+          PY
+          file patch_avb.sparse patch_avb.raw || true
+          if command -v debugfs >/dev/null; then
+            debugfs -R 'ls -l /' patch_avb.raw 2>&1 | head -90 || true
+          fi
+          strings -a patch_avb.raw | grep -Ei 'patch_hn|avbtool|dm-verity|verifiedboot|encrypt|android|oem|unlock' | head -50 || true
+      - name: Save forensic format proof, never flash this image
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_AVB_PATCH_STRUCTURE
+          path: report/
+          retention-days: 14
