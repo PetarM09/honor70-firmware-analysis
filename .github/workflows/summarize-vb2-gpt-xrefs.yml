@@ -1,0 +1,47 @@
+name: Honor70 Summarize Real VB2 GPT String References
+on:
+  push:
+    paths:
+      - '.github/workflows/summarize-vb2-gpt-xrefs.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve original ABL UTF16 and ASCII references
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p in out
+          gh run download 42541795687 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_VBMETA_UTF16_GPT_XREFS --dir in
+      - name: Report whether VB2 GPT detection uses UTF16 name
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('in/ABL_VBMETA_STRING_XREFS.txt').read_text(errors='replace')
+          b=re.split(r'(?=^==== STRING )',src,flags=re.M)
+          for group in b:
+            if not group.startswith('==== STRING '):continue
+            name=re.search(r'STRING ([\w_]+) ENCODING ([\w-]+) OCCURRENCES (\d+)',group)
+            if not name:continue
+            values=[]
+            for segment in group.split('STRING OFFSET=')[1:]:
+              start=segment.splitlines()[:2]
+              loc=start[0].split()[0]
+              cnt=re.search(r'CODE_XREFS=(\d+)',segment)
+              ref=re.findall(r'^REFERENCE (\w+)',segment,re.M)
+              values.append({'offset':loc,'refs':int(cnt.group(1)) if cnt else 0,'from':ref[:20]})
+            print(name.group(1),name.group(2),'COUNT',name.group(3),'DETAILS',str(values[:30])[:3000])
+          Path('out/SUMMARY.txt').write_text('\n'.join(g.splitlines()[0] for g in b[1:])+'\n')
+          PY
+      - name: Save
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_VB2_GPT_STRING_SUMMARY
+          path: out/
+          retention-days: 14
