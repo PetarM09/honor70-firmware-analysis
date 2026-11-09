@@ -1,0 +1,74 @@
+name: Honor70 Verify New Keymaster IDs and Milestone Call Origin
+on:
+  push:
+    paths:
+      - '.github/workflows/km41-registered-ids-and-milestone.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Download exact firmware trustlet and UEFI decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/keymaster input/dxe results
+          gh run download 42539482630 --repo "$GITHUB_REPOSITORY" --name HONOR70_MATCHING_SECURE_BOOT_MODULES --dir input/keymaster
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir input/dxe
+      - name: Identify callable Keymaster command aliases and UEFI milestone references
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,re,hashlib
+          b=Path('input/keymaster/exports/km41.mbn').read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='c7f389b80444a9c9e3956efd427abbae1b5b2753b3c905107ca7888dca496afd'
+          ids={0x202:'OLD_READ',0x203:'OLD_WRITE',0x204:'OLD_MILESTONE',
+               0x2202:'NEW_READ',0x2203:'NEW_WRITE',0x2204:'NEW_MILESTONE'}
+          lines=[]
+          for cid,name in ids.items():
+            raw=struct.pack('<I',cid)
+            offsets=[]
+            start=0
+            while True:
+              off=b.find(raw,start)
+              if off<0:break
+              start=off+1
+              flags=struct.unpack_from('<I',b,off+4)[0] if off+16<=len(b) else None
+              ptr=struct.unpack_from('<Q',b,off+8)[0] if off+16<=len(b) else None
+              if flags in (0,0x100) and ptr is not None and 0x100000<=ptr<0x132000:
+                 offsets.append((off,flags,ptr))
+            lines.append(f'{name} ID=0x{cid:x} VALID_TABLE_RECORDS='+str(len(offsets)))
+            for off,flags,ptr in offsets[:20]:
+               lines.append(f'  ELF_RAW_OFFSET=0x{off:x} flags=0x{flags:x} callback=0x{ptr:x}')
+               if cid==0x202:
+                 for delta in range(-48,128,16):
+                    pos=off+delta
+                    if pos<0 or pos+16>len(b):continue
+                    cmd,fl,fn=struct.unpack_from('<IIQ',b,pos)
+                    lines.append(f'     NEIGHBOR {delta:+} ID=0x{cmd:x} FLAGS=0x{fl:x} FUNC=0x{fn:x}')
+          d=next(Path('input/dxe').rglob('VERIFIEDBOOT_DXE_GHIDRA.txt')).read_text(errors='replace')
+          blocks=re.split(r'(?=^======== FUNCTION )',d,flags=re.M)
+          lines.append('\n===== DXE MILESTONE REFERENCES =====')
+          for block in blocks:
+            if not block.startswith('======== FUNCTION '):continue
+            occurrences=[]
+            for k in ('milestone','0x204','0x2204','0x202','0x203','keymaster'):
+               if k in block.lower():occurrences.append(k)
+            if occurrences:
+              lines.append(block.splitlines()[0]+' matched '+','.join(occurrences))
+              for context in re.finditer(r'(?i)milestone|0x204|0x2204',block):
+                lines.append(block[max(0,context.start()-220):context.end()+220].replace('\n',' '))
+          output='\n'.join(lines)+'\n'
+          Path('results/KM41_COMMAND_TABLE_AUDIT.txt').write_text(output)
+          print(output[:24000])
+          PY
+      - name: Publish read-only results
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_OLD_NEW_ALIAS_EVIDENCE
+          path: results/
+          retention-days: 14
