@@ -1,0 +1,54 @@
+name: Honor70 Compare Board vs Retail Fastboot Policy Decompiled Functions
+on:
+  push:
+    paths:
+      - '.github/workflows/compare-board-retail-fastboot-code.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve both independently decompiled Fastboot firmwares
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src/board src/retail report
+          gh run download 42604503921 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_LINUXLOADER_GHIDRA_UNLOCK --dir src/board
+          gh run download 42533269683 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir src/retail
+      - name: Compare full decompiled unlock and FRP code, not just strings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          b=Path('src/board/BOARD_ABL_UNLOCK_DECOMPILATION.txt').read_text(errors='replace')
+          r=Path('src/retail/GHIDRA_ABL_DECOMPILATION.txt').read_text(errors='replace')
+          sections={
+            'BOARD':(b,['00003080','00021454','00023b08','00025f14','00034800','0003fb98','00006688']),
+            'RETAIL':(r,['00027850','00025b88','00023fd0','00043688','00037ac0','00013008'])}
+          out=[]
+          for title,(source,targets) in sections.items():
+            out.append('===== '+title+' SOURCE_BYTES '+str(len(source))+' =====')
+            for target in targets:
+              idx=re.search(r'^========== TARGET '+target+r' [^\\n]*',source,re.M|re.I)
+              if not idx:
+                  out.append('MISSING '+title+' '+target)
+                  continue
+              following=re.search(r'^========== TARGET ',source[idx.end():],re.M)
+              end=idx.end()+following.start() if following else len(source)
+              segment=source[idx.start():end]
+              out.append('===== FUNCTION '+title+' '+target+' BYTES '+str(len(segment))+' =====')
+              out.append(segment[:30000])
+          Path('report/BOARD_RETAIL_FASTBOOT_POLICY_SIDE_BY_SIDE.txt').write_text('\n'.join(out)+'\n')
+          print('COMPARISON_BYTES',sum(map(len,out)))
+          print('\n'.join(out)[:71000])
+          PY
+      - name: Save trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_RETAIL_FASTBOOT_GHIDRA_COMPARISON
+          path: report/
+          retention-days: 14
