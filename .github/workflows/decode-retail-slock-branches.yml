@@ -1,0 +1,74 @@
+name: Honor70 Decode Retail Slock Entrypoints and State Accessors
+on:
+  push:
+    paths:
+      - '.github/workflows/decode-retail-slock-branches.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download exact EEA ABL and Ghidra report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input ghidra report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          gh run download 42623117765 --repo "$GITHUB_REPOSITORY" --name HONOR70_EEA_SLOCK_AND_ACCESS_STATE_GHIDRA --dir ghidra
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Disassemble exact signed slock, hwdog, FRP wrappers and device state accessor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import pefile,hashlib,re
+          sha='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          files=[p for p in Path('input').rglob('*.efi') if hashlib.sha256(p.read_bytes()).hexdigest()==sha]
+          assert len(files)==1
+          data=files[0].read_bytes();pe=pefile.PE(data=data,fast_load=True)
+          arch=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          targets={
+            'fastboot_command_gate':0x134c0,
+            'get_fastboot_service_state':0x13608,
+            'slock_v0_handler':0x14774,
+            'slock_v1_handler':0x147dc,
+            'hwdog_certify_begin':0x14748,
+            'hwdog_certify_close':0x14888,
+            'oem_frp_unlock':0x14568,
+            'oem_frp_unlock_aux':0x19c4c,
+            'fastboot_unlock':0x25c04,
+          }
+          lines=[]
+          for name,rva in targets.items():
+            offset=pe.get_offset_from_rva(rva)
+            blob=data[offset:offset+128]
+            ins=list(arch.disasm(blob,rva))
+            lines.append('===== '+name+' RVA '+hex(rva)+' =====')
+            lines.extend(f'{i.address:08x} {i.mnemonic:10} {i.op_str}' for i in ins[:24])
+          s=Path('ghidra/HONOR70_EEA_SLOCK_AND_LOCKED_MODE_STATE.txt').read_text(errors='replace')
+          for name in ('00013608','0001545c','00019788','00014a38','00019d78','00016a2c'):
+            token='====== SERVICE FUNCTION '+name+' '
+            start=s.find(token)
+            if start<0:continue
+            end=s.find('====== SERVICE FUNCTION ',start+len(token))
+            body=s[start:end if end>=0 else len(s)]
+            lines.append('===== GHIDRA FUNCTION '+name+' =====')
+            if name in ('00013608','0001545c','00019788'):
+              lines.append(body[:9000])
+            elif name=='00014a38':
+              lines.append(body[:19000])
+            else:
+              lines.append('RELEVANT_LINES: '+str([x.strip() for x in body.splitlines() if re.search('slock|frp|password|verify|signature|certify|token|AUTH|unlock|FAIL',x,re.I)])[:14000])
+          report='\n'.join(lines)+'\n'
+          Path('report/SLOCK_ACCESS_WRAPPERS_DISASM.txt').write_text(report)
+          print(report[:40000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_SLOCK_WRAPPERS_AND_STATE
+          path: report/
+          retention-days: 14
