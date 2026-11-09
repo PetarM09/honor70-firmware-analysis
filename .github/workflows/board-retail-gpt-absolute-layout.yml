@@ -1,0 +1,86 @@
+name: Honor70 Compare Absolute UFS Partition LBAs Board vs Retail
+on:
+  push:
+    paths:
+      - '.github/workflows/board-retail-gpt-absolute-layout.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve independent stock/Board raw GPT images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/retail input/board board report
+          gh run download 42535247420 --repo "$GITHUB_REPOSITORY" --name HONOR70_GPT_GBL_INVENTORY --dir input/retail
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir input/board
+          unzip -q input/board/selected_bootchain.zip fastbootimage/gpt_both0.bin -d board
+      - name: CRC validate and compare exact LUN, start LBA, end LBA, type GUID
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,struct,zlib,uuid,json
+          retail=next(Path('input/retail').rglob('gpt_both0.bin')).read_bytes()
+          board=Path('board/fastbootimage/gpt_both0.bin').read_bytes()
+          def inspect(buf):
+            lun={}
+            for offset in (x.start() for x in re.finditer(b'EFI PART',buf)):
+              if offset < 4096:continue
+              h=buf[offset:]
+              current_lba=struct.unpack_from('<Q',h,24)[0]
+              if current_lba!=1:continue
+              table_lba,count,entrysz=struct.unpack_from('<QII',h,72)
+              if entrysz not in (128,256) or count>256:continue
+              table_off=offset-4096+table_lba*4096
+              size=count*entrysz
+              if table_off+size>len(buf):continue
+              expected=struct.unpack_from('<I',h,88)[0]
+              actual=zlib.crc32(buf[table_off:table_off+size])&0xffffffff
+              parts={}
+              for i in range(count):
+                e=buf[table_off+i*entrysz:table_off+(i+1)*entrysz]
+                if e[:16]==bytes(16):continue
+                name=e[56:128].decode('utf16le','replace').split('\0')[0]
+                if not name:continue
+                start,end,attr=struct.unpack_from('<QQQ',e,32)
+                parts[name]={'start_lba':start,'end_lba':end,
+                            'size_sectors':end-start+1,'type_guid':str(uuid.UUID(bytes_le=e[:16])),
+                            'unique_guid':str(uuid.UUID(bytes_le=e[16:32]))}
+              lun[offset]={'primary_gpt_crc_valid':expected==actual,'partitions':parts,
+                           'sector_size':4096}
+            return lun
+          a,b=inspect(retail),inspect(board)
+          assert len(a)==len(b)==6,'Expected 6 valid stock and Board GPT LUNs'
+          report={'board_luns':len(b),'retail_luns':len(a),'comparison':[]}
+          for index,(ak,bk) in enumerate(zip(sorted(a),sorted(b))):
+            r=a[ak]['partitions'];v=b[bk]['partitions']
+            differences=[]
+            for name in sorted(set(r)|set(v)):
+              old=r.get(name);new=v.get(name)
+              if not old or not new:
+                differences.append({'name':name,'change':'added_to_board' if new else 'removed_from_board','old':old,'new':new})
+              elif any(old[k]!=new[k] for k in ('start_lba','end_lba','size_sectors','type_guid')):
+                differences.append({'name':name,'change':'geometry_changed','old':old,'new':new})
+            report['comparison'].append({'lun_index':index,'stock_header_offset':ak,'board_header_offset':bk,
+                                          'stock_count':len(r),'board_count':len(v),
+                                          'stock_crc':a[ak]['primary_gpt_crc_valid'],
+                                          'board_crc':b[bk]['primary_gpt_crc_valid'],
+                                          'differences':differences})
+            print('LUN',index,'EEA',len(r),'BOARD',len(v),'GEOMETRY_DIFFERENCES',len(differences))
+            for d in differences[:35]:
+               print('DIFFERENCE',d['name'],d['change'],
+                  'RETAIL',d['old']['start_lba'] if d['old'] else None, d['old']['end_lba'] if d['old'] else None,
+                  'BOARD',d['new']['start_lba'] if d['new'] else None,d['new']['end_lba'] if d['new'] else None)
+          Path('report/BOARD_EEA_GPT_ABSOLUTE_LBA_DIFFERENCES.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Publish comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_EEA_LBA_LAYOUT_DIFF
+          path: report/
+          retention-days: 14
