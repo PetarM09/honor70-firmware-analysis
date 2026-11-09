@@ -1,0 +1,62 @@
+name: Honor70 Verify Board GPT Differences and Flash Plan Safety
+on:
+  push:
+    paths:
+      - '.github/workflows/board-stock-gpt-xml-safety.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve stock GPT and independently verified Board partition manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/stock input/board report
+          gh run download 42535247420 --repo "$GITHUB_REPOSITORY" --name HONOR70_GPT_GBL_INVENTORY --dir input/stock
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir input/board
+          find input -maxdepth 4 -type f -printf '%p %s\n'
+      - name: Compare actual partition names and Board programmer commands
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,re
+          stockfile=next(Path('input/stock').rglob('GPT_GBL_EFISP_PARTITIONS.txt'))
+          stock=stockfile.read_text(errors='replace')
+          s={}
+          for line in stock.splitlines():
+            if line.startswith('PARTITION '):
+              m=re.search(r'name=(\S+)',line)
+              if m:
+                s[m.group(1)]=s.get(m.group(1),0)+1
+          board=json.loads(next(Path('input/board').rglob('BOARD_GPT_FIREHOSE_XML.json')).read_text())
+          b={}
+          for entry in board.get('GPT_gpt_both0.bin',[]):
+            for name in entry['partitions']:
+              b[name]=b.get(name,0)+1
+          only_board=sorted(set(b)-set(s))
+          only_stock=sorted(set(s)-set(b))
+          changed={key:{'stock_count':s[key],'board_count':b[key]} for key in set(s)&set(b) if s[key]!=b[key]}
+          report={'eea_partition_count':sum(s.values()),'board_partition_count':sum(b.values()),
+                  'only_in_board':only_board,'only_in_eea':only_stock,'count_changed':changed}
+          report['board_programmer_xml']={}
+          for key,x in board.items():
+            if not key.endswith('.xml'):continue
+            report['board_programmer_xml'][key]={
+              'program_records':x.get('programs'),
+              'mentions_sensitive':x.get('mentions_sensitive'),
+              'label_candidates':x.get('label_candidates')
+            }
+          Path('report/GPT_XML_CROSS_MODEL_DIFF.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2)[:26000])
+          PY
+      - name: Save comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FNE_AN00_VS_NX9_GPT_SAFETY
+          path: report/
+          retention-days: 14
