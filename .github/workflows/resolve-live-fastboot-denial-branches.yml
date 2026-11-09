@@ -1,0 +1,52 @@
+name: Honor70 Resolve Exact Command Not Allowed Branches
+on:
+  push:
+    paths:
+      - '.github/workflows/resolve-live-fastboot-denial-branches.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  explain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download previous Ghidra report without repeating full import
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence reduced
+          gh run download 42622015805 --repo "$GITHUB_REPOSITORY" --name HONOR70_EEA_FASTBOOT_DENIAL_GATE_TRACE --dir evidence
+      - name: Print exact decompiled error paths and Fastboot query handlers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,json
+          s=Path('evidence/HONOR70_EEA_FASTBOOT_COMMAND_GATE_GHIDRA.txt').read_text(errors='replace')
+          markers=re.split(r'(?=^========== FUNCTION )',s,flags=re.M)
+          results={}
+          labels=['00022c7c','00019c4c','00026598','00025b88','000134c0','00027850']
+          for address in labels:
+            match=[item for item in markers if item.startswith('========== FUNCTION '+address+' ')]
+            if not match:
+              print('NO_SECTION_FOR',address);continue
+            body=match[0].split('FUNCTIONS_EXPORTED')[0].strip()
+            results[address]=body
+            print('\n========== DECOMPILED '+address+' ==========\n'+body[:24000])
+          Path('reduced/FASTBOOT_COMMAND_DENIAL_EXACT_CALLERS.txt').write_text('\n\n'.join(results.values())+'\n')
+          for address,source in results.items():
+            print('SUMMARY',address,json.dumps({
+               'has_denied':('Command not allowed' in source),
+               'has_unlock_ability':('get_unlock_ability:' in source),
+               'has_oem':('oem ' in source),
+               'has_getvar':('getvar' in source),
+               'has_fragile_goto':('goto code_r' in source),
+               'length':len(source)
+              }))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_LIVE_FASTBOOT_DENIAL_EXACT_CALLERS
+          path: reduced/
+          retention-days: 14
