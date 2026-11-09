@@ -1,0 +1,56 @@
+name: Honor70 Test Readonly Fastboot Lock Path Probe
+on:
+  push:
+    paths:
+      - 'tools/honor70_fastboot_lockpath_readonly.py'
+      - '.github/workflows/test-fastboot-lockpath-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate script syntax and simulate safe responses without phone
+        run: |
+          python3 -m py_compile tools/honor70_fastboot_lockpath_readonly.py
+          mkdir -p mock
+          cat > mock/fastboot <<'SH'
+          #!/bin/sh
+          if [ "$1" = devices ]; then
+            printf 'SECRETDEVICE123\tfastboot\n'
+            exit 0
+          fi
+          if [ "$1" = reboot ]; then
+            echo 'Rebooting'
+            exit 0
+          fi
+          if [ "$1" = flashing ] && [ "$2" = get_unlock_ability ]; then
+            echo '(bootloader) get_unlock_ability: 1' >&2
+            exit 0
+          fi
+          if [ "$1" = getvar ] && [ "$2" = unlocked ]; then
+            echo '(bootloader) unlocked: no' >&2
+            exit 0
+          fi
+          if [ "$1" = oem ]; then
+            echo 'FAILED (remote: Command not allowed)' >&2
+            exit 1
+          fi
+          echo "OKAY variable $2" >&2
+          SH
+          chmod +x mock/fastboot
+          python3 tools/honor70_fastboot_lockpath_readonly.py             --fastboot-path "$PWD/mock/fastboot"             --output /tmp/HONOR70_FASTBOOT_LOCKPATH_READONLY.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('/tmp/HONOR70_FASTBOOT_LOCKPATH_READONLY.txt').read_text()
+          assert 'SECRETDEVICE123' not in t
+          assert 'get_unlock_ability: 1' in t
+          assert 'unlocked: no' in t
+          assert 'flashing unlock\n' not in t
+          assert 'get-bootinfo' in t and 'Command not allowed' in t
+          assert t.count('COMMAND=')==11
+          print('FASTBOOT_READONLY_PROBE_TEST_PASS')
+          PY
