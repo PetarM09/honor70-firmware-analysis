@@ -1,0 +1,75 @@
+name: Honor70 Resolve Board-only Critical Unlock Fastboot Handler
+on:
+  push:
+    paths:
+      - '.github/workflows/board-critical-unlock-handler.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve Board and Retail LinuxLoader UEFI ELF images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/board input/retail report
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir input/board
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input/retail
+          python3 -m pip install --quiet --break-system-packages pefile capstone
+      - name: Decode Fastboot critical/normal unlock registry pointer tables and handlers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,struct,json
+          import pefile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          board=Path('input/board/modules/LinuxLoader.efi')
+          retail=next(x for x in Path('input/retail').rglob('*.efi') if hashlib.sha256(x.read_bytes()).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087')
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          out={}
+          for label,p,off,length in [('BOARD',board,0xb1d70,0x260),('EEA',retail,0xbbfb0,0x300)]:
+             d=p.read_bytes();pe=pefile.PE(data=d,fast_load=True)
+             base=pe.OPTIONAL_HEADER.ImageBase
+             def textptr(pointer):
+                if pointer<base:return None
+                try:
+                  pos=pe.get_offset_from_rva(pointer-base)
+                except Exception:
+                  return None
+                if not 0<=pos<len(d):return None
+                raw=d[pos:pos+130].split(b'\0')[0]
+                if len(raw)<4 or any(c<32 or c>126 for c in raw):return None
+                return raw.decode('ascii','replace')
+             records=[]
+             for addr in range(off,off+length,8):
+                pos=pe.get_offset_from_rva(addr)
+                nameptr=struct.unpack_from('<Q',d,pos)[0]
+                name=textptr(nameptr)
+                if not name or not any(v in name.lower() for v in ('unlock','lock','oem','flash','getvar','reboot','erase','download')):
+                   continue
+                funcptr=struct.unpack_from('<Q',d,pos+8)[0]
+                rec={'table_rva':hex(addr),'label':name,'name_address':hex(nameptr),
+                     'second_field':hex(funcptr),'function_candidate':base<=funcptr<base+len(d)}
+                records.append(rec)
+                print('REGISTERED',label,json.dumps(rec))
+                if any(x in name for x in ('unlock','lock_critical','lock-state')):
+                  if rec['function_candidate']:
+                    code_off=pe.get_offset_from_rva(funcptr-base)
+                    b=d[code_off:code_off+0x150]
+                    print('DISASSEMBLY',label,name,'target',hex(funcptr))
+                    for ins in md.disasm(b,funcptr):
+                      if ins.address>funcptr+0xa0:break
+                      print(hex(ins.address),ins.mnemonic,ins.op_str)
+             out[label]={'source_sha256':hashlib.sha256(d).hexdigest(),'records':records}
+          Path('report/BOARD_FACTORY_CRITICAL_UNLOCK_REGISTRY.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+      - name: Archive pointers and ARM64 code
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FACTORY_CRITICAL_UNLOCK_HANDLER_POINTERS
+          path: report/
+          retention-days: 14
