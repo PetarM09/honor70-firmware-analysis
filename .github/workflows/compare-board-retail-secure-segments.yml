@@ -1,0 +1,85 @@
+name: Honor70 Board vs Retail Keymaster and TrustZone ELF Segment Diff
+on:
+  push:
+    paths:
+      - '.github/workflows/compare-board-retail-secure-segments.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch independently fingerprinted Board and EEA stock modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p board_download eea report board
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir board_download
+          unzip -q board_download/selected_bootchain.zip 'bootloaderimage/km41.mbn' 'bootloaderimage/tz.mbn' 'bootloaderimage/featenabler.mbn' 'bootloaderimage/uefi_sec.mbn' -d board
+          gh run download 42539482630 --repo "$GITHUB_REPOSITORY" --name HONOR70_MATCHING_SECURE_BOOT_MODULES --dir eea
+          python3 -m pip install --quiet --break-system-packages pyelftools
+      - name: Compare ELF virtual and raw code segment bytes, not just signatures
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,struct,json
+          from elftools.elf.elffile import ELFFile
+          files={'km41.mbn':('board/bootloaderimage/km41.mbn','eea/exports/km41.mbn'),
+                 'tz.mbn':('board/bootloaderimage/tz.mbn','eea/exports/tz.mbn'),
+                 'uefi_sec.mbn':('board/bootloaderimage/uefi_sec.mbn','eea/exports/uefi_sec.mbn')}
+          report=[]
+          def sha(b):return hashlib.sha256(b).hexdigest()
+          def read_segments(path):
+              with open(path,'rb') as f:
+                  elf=ELFFile(f)
+                  records=[]
+                  for i,p in enumerate(elf.iter_segments()):
+                      if p['p_type'] not in ('PT_LOAD','PT_DYNAMIC'):
+                          continue
+                      data=p.data()
+                      records.append({'index':i,'type':p['p_type'],'off':int(p['p_offset']),
+                                      'vaddr':int(p['p_vaddr']),'filesz':len(data),
+                                      'flags':int(p['p_flags']),'sha':sha(data),'raw':data})
+                  return {'class':elf.elfclass,'machine':str(elf['e_machine']),
+                          'entry':int(elf['e_entry']),'segments':records}
+          for name,(board,stock) in files.items():
+              a=Path(board); b=Path(stock)
+              if not a.is_file() or not b.is_file():
+                  report.append({'filename':name,'error':'file missing','board_exists':a.exists(),'stock_exists':b.exists()})
+                  continue
+              x,y=read_segments(a),read_segments(b)
+              r={'filename':name,'board_sha256':sha(a.read_bytes()),'eea_sha256':sha(b.read_bytes()),
+                 'board_size':a.stat().st_size,'eea_size':b.stat().st_size,
+                 'board_entry':x['entry'],'stock_entry':y['entry'],
+                 'same_machine':x['machine']==y['machine'],
+                 'same_number_segments':len(x['segments'])==len(y['segments']),
+                 'segment_diffs':[]}
+              for ix,(p,q) in enumerate(zip(x['segments'],y['segments'])):
+                  a_data,b_data=p['raw'],q['raw']
+                  mismatch=sum(aa!=bb for aa,bb in zip(a_data,b_data))
+                  diff_offset=next((k for k,(aa,bb) in enumerate(zip(a_data,b_data)) if aa!=bb),None)
+                  r['segment_diffs'].append({
+                    'index':ix,'board_vaddr':hex(p['vaddr']),'eea_vaddr':hex(q['vaddr']),
+                    'board_len':p['filesz'],'eea_len':q['filesz'],
+                    'identical':a_data==b_data,
+                    'changed_bytes_in_overlap':mismatch,
+                    'first_mismatch_offset':diff_offset,
+                    'board_segment_sha256':p['sha'],
+                    'eea_segment_sha256':q['sha']
+                  })
+              report.append(r)
+              print('FILE',name,'BOARD',r['board_sha256'],'EEA',r['eea_sha256'])
+              for s in r['segment_diffs']:
+                  print('SEGMENT',s['index'],'same',s['identical'],'diffbytes',s['changed_bytes_in_overlap'],
+                        'lengths',s['board_len'],s['eea_len'],'vaddr',s['board_vaddr'],s['eea_vaddr'])
+          Path('report/ELF_SIGNED_SEGMENT_COMPARISON.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Upload comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_VS_RETAIL_ELF_SEGMENT_DIFF
+          path: report/
+          retention-days: 14
