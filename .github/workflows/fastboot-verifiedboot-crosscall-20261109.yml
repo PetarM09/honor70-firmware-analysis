@@ -1,0 +1,51 @@
+name: Honor70 Diagnose Fastboot Unlock Wipe Without State Change
+on:
+  push:
+    paths:
+      - '.github/workflows/fastboot-verifiedboot-crosscall-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Retrieve exact ABL and XBL Ghidra reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p abl xbl report
+          gh run download 42534601904 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir abl
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir xbl
+      - name: Print complete response and state transition decisions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          a=next(Path('abl').rglob('GHIDRA_ABL_DECOMPILATION.txt')).read_text(errors='replace')
+          x=next(Path('xbl').rglob('VERIFIEDBOOT_DXE_GHIDRA.txt')).read_text(errors='replace')
+          rules=[('ABL',a,r'(?=^========== TARGET )',['00027850','00043688','000240c8','00023fd0','00013008','00025b88','00025c04','00025c0c']),
+                 ('XBL',x,r'(?=^======== FUNCTION )',['0000153c','00003904','00003898'])]
+          for scope,d,regex,addresses in rules:
+            chunks=re.split(regex,d,flags=re.M)
+            for addr in addresses:
+              prefix=('========== TARGET '+addr) if scope=='ABL' else ('======== FUNCTION '+addr)
+              b=next((z for z in chunks if z.startswith(prefix)),None)
+              if b is None:
+                 print('MISSING '+scope+' '+addr)
+                 continue
+              Path('report/'+scope+'_'+addr+'.txt').write_text(b)
+              print('\n====== '+scope+' '+addr+' SIZE '+str(len(b))+' ======')
+              if scope=='ABL' and addr in ('00027850','00043688','000240c8','00013008'):
+                  print(b[:17500])
+              else:
+                  print(b[:2500])
+          PY
+      - name: Publish code evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_SECURE_STATE_CROSSCALL_EVIDENCE
+          path: report/
+          retention-days: 14
