@@ -1,0 +1,109 @@
+name: Honor70 Board vs Retail Secure Unlock Semantic Comparison
+on:
+  push:
+    paths:
+      - '.github/workflows/board-retail-security-semantic-diff.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download original Ghidra reports for BOTH EEA retail and Chinese Board
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/board_km input/eea_km input/board_dxe input/eea_dxe input/board_abl report
+          gh run download 42605355587 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_KM41_EXACT_WRITE_MILESTONE --dir input/board_km
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_WRITE_FUSE_GUARD --dir input/eea_km
+          gh run download 42604658935 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_VERIFIEDBOOT_GHIDRA --dir input/board_dxe
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir input/eea_dxe
+          gh run download 42604503921 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_LINUXLOADER_GHIDRA_UNLOCK --dir input/board_abl
+      - name: Normalize and compare exact KMaster milestone and VB DXE functions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,difflib,json
+          def load(folder,name):
+            hits=list(Path(folder).rglob(name))
+            assert len(hits)==1,(folder,name,[str(x) for x in hits])
+            return hits[0].read_text(errors='replace')
+          bkm=load('input/board_km','BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt')
+          rkm=load('input/eea_km','KM41_WRITE_MILESTONE_DECOMPILE.txt')
+          bd=load('input/board_dxe','VERIFIEDBOOT_DXE_GHIDRA.txt')
+          rd=load('input/eea_dxe','VERIFIEDBOOT_DXE_GHIDRA.txt')
+          ba=load('input/board_abl','BOARD_ABL_UNLOCK_DECOMPILATION.txt')
+          def kmfunc(src,address):
+             token='===== TARGET '+address+' ====='
+             start=src.find(token)
+             if start<0:return None
+             nxt=src.find('===== TARGET ',start+len(token))
+             return src[start:nxt if nxt>=0 else None]
+          def dxe(src,address):
+             marker='======== FUNCTION '+address+' '
+             start=src.find(marker)
+             if start<0:return None
+             nxt=src.find('======== FUNCTION ',start+len(marker))
+             return src[start:nxt if nxt>=0 else None]
+          def normalize(s):
+             if s is None:return ''
+             s=re.sub(r'FUN_[0-9a-f]{8}','FUN_ADDRESS',s)
+             s=re.sub(r'DAT_[0-9a-f]{8}','DAT_ADDRESS',s)
+             s=re.sub(r'LAB_[0-9a-f]{8}','LAB_ADDRESS',s)
+             s=re.sub(r'\b0x[0-9a-f]{5,}\b','ADDRESS',s)
+             s=re.sub(r'(?m)^===== TARGET [^\\n]*','',s)
+             s=re.sub(r'(?m)^ENTRY [^\\n]*','',s)
+             s=re.sub(r'(?m)^======== FUNCTION [^\\n]*','',s)
+             s=re.sub(r'(?m)^Function [^\\n]*','',s)
+             s=re.sub(r'\s+',' ',s).strip()
+             return s
+          compare=[
+             ('Keymaster read device state','km','1184c0','1185a8'),
+             ('Keymaster write device state','km','118790','118878'),
+             ('Keymaster check milestone fuse','km','117898','117980'),
+             ('Keymaster set milestone','km','117930','117a18'),
+             ('Keymaster per-command gate','km','11b08c','11b174'),
+             ('VerifiedBootDxe RWDeviceState','dxe','0000153c','0000153c'),
+             ('VerifiedBootDxe security selector','dxe','00003904','00003904'),
+             ('VerifiedBootDxe secure fallback','dxe','00003898','00003898')
+          ]
+          report=[]
+          for name,component,baddress,raddress in compare:
+             source_b=kmfunc(bkm,baddress) if component=='km' else dxe(bd,baddress)
+             source_r=kmfunc(rkm,raddress) if component=='km' else dxe(rd,raddress)
+             nb=normalize(source_b);nr=normalize(source_r)
+             result={'function':name,'component':component,'board_address':baddress,'eea_address':raddress,
+                     'board_decompiled':source_b is not None,'eea_decompiled':source_r is not None,
+                     'similarity_ratio_of_normalized_decompiled_text':round(difflib.SequenceMatcher(None,nb,nr,autojunk=False).ratio(),4) if nb and nr else None,
+                     'board_has_qsee_fuse_checker':('qsee_is_sw_fuse_blown' in (source_b or '')),
+                     'eea_has_qsee_fuse_checker':('qsee_is_sw_fuse_blown' in (source_r or '')),
+                     'board_fuse_blow':('qsee_blow_sw_fuse' in (source_b or '')),
+                     'eea_fuse_blow':('qsee_blow_sw_fuse' in (source_r or '')),
+                     'board_secure_state_mask_8703':('0x8703' in (source_b or '')),
+                     'eea_secure_state_mask_8703':('0x8703' in (source_r or ''))}
+             report.append(result)
+             print('FUNCTION',json.dumps(result))
+             if component=='km':
+                print('BOARD_CODE '+name+'\n'+str(source_b)[:10500])
+                print('EEA_CODE '+name+'\n'+str(source_r)[:10500])
+             if component=='dxe' and name in ('VerifiedBootDxe security selector','VerifiedBootDxe secure fallback'):
+                print('BOARD_CODE '+name+'\n'+str(source_b)[:9500])
+          # Extract actual Board Fastboot gates without assuming identical field offset
+          for address in ('00023b08','00025f14','00021454','0003fb98','00034800'):
+             t='========== TARGET '+address+' '
+             i=ba.find(t)
+             if i<0:continue
+             j=ba.find('========== TARGET ',i+len(t))
+             code=ba[i:j if j>=0 else None]
+             (Path('report')/('BOARD_ABL_'+address+'.txt')).write_text(code)
+          Path('report/BOARD_VS_RETAIL_FUSE_AND_STORAGE_SEMANTICS.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Save security comparison and raw code excerpts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_RETAIL_KEYMASTER_VB_SEMANTICS
+          path: report/
+          retention-days: 14
