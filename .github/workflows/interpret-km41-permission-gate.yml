@@ -29,8 +29,8 @@ jobs:
             rx=r'(?=^====== DECOMPILE [^\n]*TARGET '+name+r' =====)'
             m=re.search(rx,d,re.M)
             if m is None:continue
-            n=re.search(r'^====== DECOMPILE',d[m.end():],re.M)
-            segment=d[m.start():m.end()+n.start() if n else len(d)]
+            n=re.search(r'^====== DECOMPILE',d[m.end()+1:],re.M)
+            segment=d[m.start():m.end()+1+n.start() if n else len(d)]
             Path('reports/'+name+'.txt').write_text(segment)
             print('\n'+segment[:14500])
           PY
