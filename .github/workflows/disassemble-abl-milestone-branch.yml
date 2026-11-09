@@ -1,0 +1,65 @@
+name: Honor70 Disassemble ABL Milestone Branch Machine Code
+on:
+  push:
+    paths:
+      - '.github/workflows/disassemble-abl-milestone-branch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve exact LinuxLoader from signed stock firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input reports
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          python3 -m pip install --quiet --break-system-packages pefile capstone
+      - name: Disassemble precise Keymaster milestone call and callers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          import pefile
+          p=next(Path('input').glob('*.efi'))
+          b=p.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=b,fast_load=True)
+          base=pe.OPTIONAL_HEADER.ImageBase
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          lines=[]
+          sections=[s for s in pe.sections if s.Characteristics&0x20000000]
+          def code_for(start,end):
+            data=b[pe.get_offset_from_rva(start):pe.get_offset_from_rva(start)+(end-start)]
+            for ins in md.disasm(data,base+start):yield ins
+          for start,end in ((0x3e80,0x4540),(0x3100,0x3300),(0x6c80,0x6f40)):
+            lines.append('\n===== MACHINE CODE RANGE '+hex(start)+'..'+hex(end)+' =====')
+            for ins in code_for(start,end):
+              lines.append(f'{ins.address:08x} {ins.mnemonic:8} {ins.op_str}')
+          targets={0x3144:'LoadImageAndAuthVB2/NoAVB integration',0x6dd0:'libavb verification vbmeta',0x7904:'vbmeta parsing',0x5258:'VB2 log',0x13008:'lock state'}
+          for t,label in targets.items():
+            refs=[]
+            for section in sections:
+              for ins in md.disasm(section.get_data(),base+section.VirtualAddress):
+                if ins.mnemonic in ('b','bl') and ins.op_str.lower()==hex(t+base):
+                  refs.append(ins.address)
+            lines.append('\n===== CALLER_XREF '+hex(t)+' '+label+' '+str(len(refs))+' =====')
+            for a in refs[:20]:
+              lines.append('CALLSITE '+hex(a))
+              lines.extend(f' {x.address:08x} {x.mnemonic:8} {x.op_str}' for x in code_for(a-44,a+64))
+          Path('reports/ABL_MILESTONE_EXACT_ARM64.txt').write_text('\n'.join(lines)+'\n')
+          for line in lines:
+            if line.startswith(('=====','CALLSITE')): print(line)
+          print('OUTPUT_BYTES',Path('reports/ABL_MILESTONE_EXACT_ARM64.txt').stat().st_size)
+          PY
+      - name: Archive exact stock ARM64 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_MILESTONE_ARM64_BRANCH
+          path: reports/
+          retention-days: 14
