@@ -1,0 +1,64 @@
+name: Honor70 Compare Board vs EEA Slock Service Wrappers
+on:
+  push:
+    paths:
+      - '.github/workflows/compare-board-eea-slock-wrappers.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Fetch verified original UEFI LinuxLoader modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p sources/eea sources/board comparison
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir sources/eea
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir sources/board
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Compare slock commands and authentication paths without modifying files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,pefile,collections,json
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          board=Path('sources/board/modules/LinuxLoader.efi')
+          bsha='1b7cbcf021a929d4f0fc3deea0d5f0c6594ea1c6203da62d00dd4672f4651497'
+          assert hashlib.sha256(board.read_bytes()).hexdigest()==bsha
+          esha='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          found=[p for p in Path('sources/eea').rglob('*.efi') if hashlib.sha256(p.read_bytes()).hexdigest()==esha]
+          assert len(found)==1
+          items={
+            "BOARD":(board,{"slock_v0":0x13650,"slock_v1":0x136b8,"hwdog_begin":0x13624,"hwdog_close":0x13764}),
+            "EEA":(found[0],{"slock_v0":0x14774,"slock_v1":0x147dc,"hwdog_begin":0x14748,"hwdog_close":0x14888}),
+          }
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          result={}
+          for label,(path,entries) in items.items():
+            raw=path.read_bytes()
+            pe=pefile.PE(data=raw,fast_load=True)
+            result[label]={}
+            for name,rva in entries.items():
+              code=raw[pe.get_offset_from_rva(rva):pe.get_offset_from_rva(rva)+104]
+              parsed=[{"addr":hex(ins.address),"mnemonic":ins.mnemonic,"op":ins.op_str} for ins in md.disasm(code,rva)]
+              cond=[ins for ins in parsed if ins["mnemonic"].startswith("b.") or ins["mnemonic"] in ("cbz","cbnz","tbz","tbnz")]
+              compare=[ins for ins in parsed if ins["mnemonic"]=="cmp"]
+              funcs=[ins for ins in parsed if ins["mnemonic"] in ("bl","blr","b")]
+              result[label][name]={"rva":hex(rva),"first_26_instructions":parsed[:26],
+                  "compare_instructions":compare,"condition_branches":cond,"calls_and_tail_branches":funcs}
+              print("HANDLER",label,name,"RVA",hex(rva))
+              for ins in parsed[:26]:print(" ",ins["addr"],ins["mnemonic"],ins["op"])
+            for token in (b'verify_certify_encrypt_data',b'common_cmd_hwdog_certify_put',b'password_check'):
+              print('STRING',label,token.decode(),'present',token in raw)
+          Path('comparison/SLOCK_BOARD_VS_EEA_WRAPPERS.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
+      - name: Archive code-only offsets and hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_EEA_SLOCK_WRAPPERS
+          path: comparison/
+          retention-days: 14
