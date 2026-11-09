@@ -1,0 +1,40 @@
+name: Honor70 Print Exact Keymaster Fuse Gate Result
+on:
+  push:
+    paths:
+      - '.github/workflows/print-km41-write-fuse-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch verified Keymaster writer decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input results
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_WRITE_FUSE_GUARD --dir input
+      - name: Isolate writer and compare reader, milestone checks
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          d=Path('input/KM41_WRITE_MILESTONE_DECOMPILE.txt').read_text(errors='replace')
+          sections=re.split(r'(?=^===== TARGET )',d,flags=re.M)
+          for key in ['118878','1185a8','117980','117a18','10e144','10e128','11b174']:
+            match=next((s for s in sections if s.startswith('===== TARGET '+key+' ')),None)
+            if match is None:
+              print('MISSING '+key);continue
+            Path('results/'+key+'.txt').write_text(match)
+            print('\n'+match[:22000])
+          PY
+      - name: Upload focused proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_ACTUAL_WRITE_FUSE_GATES
+          path: results/
+          retention-days: 14
