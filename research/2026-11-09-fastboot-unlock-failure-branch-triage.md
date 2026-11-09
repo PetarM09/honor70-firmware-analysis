@@ -65,3 +65,52 @@ Source: [EEA / Board SLOCK comparison](2026-11-09-slock-service-board-retail-com
 4. Evidence needed for a **confirmed** result is persisted `UNLOCKED` after power cycles with verified boot state consistent with actual unlock. OEM toggle, Firehose loader acceptance, FRP reset or factory wipe alone are not enough.
 
 **Assessment:** Current evidence narrows the unresolved case to FRP permission, a post-confirmation state-set error, or persistence/backend failure. It does **not** identify a demonstrated safe/reproducible permanent unlock procedure.
+
+
+## 6. Newly confirmed: command gate shares a concrete initialized state field with lock-state query
+
+An additional offline ARM64 XREF workflow analyzed the same verified signed EEA LinuxLoader:
+
+- [Full run and read-only artifact](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/42626091468)
+- [Source of reproducible Capstone audit](https://github.com/PetarM09/honor70-firmware-analysis/blob/main/.github/workflows/trace-fastboot-access-state-readonly-20261109.yml)
+
+At `0x12ea0`, initialization calls `0x176d8`, obtains a context pointer in `x19`, and at `0x12ec4` **writes the +0x104 state field**. It initializes this field using `0x13684` in one branch, or zero in another. That code path is not purely a Fastboot allowlist: the state value is initialized first, then consulted by multiple unrelated functions.
+
+```asm
+0x12ea0 bl  #0x176d8
+0x12ea4 mov x19, x0
+0x12ea8 bl  #0x12cf8
+0x12eac cbnz w0, #0x12ec4
+0x12eb0 bl  #0x13d58
+0x12eb4 cbz w0, #0x12ec0
+0x12eb8 mov w0, wzr
+0x12ebc b   #0x12ec4
+0x12ec0 bl  #0x13684
+0x12ec4 str w0, [x19, #0x104]
+```
+
+**Independent READ of the same context**: `0x13008` invokes `0x13608` (which calls `0x176d8`), then `0x13024` reads `[x0,#0x104]`, compares to 1, and returns a boolean (subject to an additional guard at `0x1301c`).
+
+```asm
+0x13014 bl  #0x13608
+0x1301c ldr w8, [x8, #0x390]
+0x13020 cbz w8, #0x13034
+0x13024 ldr w8, [x0, #0x104]
+0x13028 cmp w8, #1
+0x1302c cset w0, eq
+```
+
+**The Fastboot allowlist gate** uses the *same context pointer* returned by `0x13608` and checks exactly `[x0,#0x104]==1` at `0x134d8..0x134e0`; otherwise applies 49 allowed command prefixes.
+
+```asm
+0x134d4 bl  #0x13608
+0x134d8 ldr w8, [x0, #0x104]
+0x134dc cmp w8, #1
+0x134e0 b.eq #0x13518     // unrestricted command dispatch
+```
+
+**Conclusion supported by exact instructions:** the Fastboot allowlist gate's `+0x104` is **not merely a hard-coded property of Fastboot command strings**. It is a genuine initialized field also read by lock-state related logic. This makes the interpretation “device unlock state gates access to broad Fastboot commands” substantially stronger, although the *exact semantic identity* of `0x13684`'s return value and the phone's live stored value remain unproven.
+
+Do not confuse context-relative `[x0,#0x104]` with absolute address `0x1b5104`: `0x176d8` resolves a context pointer from a global. All scans of arbitrary `[reg,#0x104]` include unrelated structures; only the linked call chain is relevant.
+
+**No device operation occurred:** both successful workflow runs operate only on the offline firmware.
