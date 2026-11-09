@@ -1,0 +1,41 @@
+name: Honor70 Verify Board Firmware Host Links
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-board-host-links.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public file-sharing URL without downloading archive
+        run: |
+          python3 - <<'PY'
+          import requests,re
+          urls=[
+            "https://fastupload.io/7b710c7b2781601c",
+            "https://drive.google.com/file/d/1r_2bxEmL5yLpK5x65rbvCG5eXsH_yHmI/view?usp=sharing",
+          ]
+          for u in urls:
+            print("=== URL ===",u)
+            try:
+              r=requests.get(u,timeout=18,stream=True,allow_redirects=True,
+                       headers={'User-Agent':'Mozilla/5.0 (compatible; read-only-link-checker)'})
+              print("HTTP_STATUS",r.status_code,"FINAL_URL",r.url,"CONTENT_TYPE",r.headers.get('content-type'),
+                    "CONTENT_LENGTH",r.headers.get('content-length'))
+              buf=bytearray()
+              for c in r.iter_content(chunk_size=1024):
+                if c:buf.extend(c)
+                if len(buf)>=32768:break
+              page=buf.decode('utf-8','replace')
+              print("TITLE",re.findall(r'<title[^>]*>(.*?)</title>',page,re.I|re.S)[:2])
+              print("PAGE_HINTS", [token for token in ['404','not found','file not found',
+                    'deleted','download','file expired','FNE-AN00','authorization','captcha'] if token.lower() in page.lower()])
+              print("EXCERPT", re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',page))[:350])
+              r.close()
+            except Exception as e:
+              print("REQUEST_ERROR",type(e).__name__,str(e)[:350])
+          PY
