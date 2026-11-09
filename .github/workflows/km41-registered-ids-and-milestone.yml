@@ -39,7 +39,7 @@ jobs:
               start=off+1
               flags=struct.unpack_from('<I',b,off+4)[0] if off+16<=len(b) else None
               ptr=struct.unpack_from('<Q',b,off+8)[0] if off+16<=len(b) else None
-              if flags in (0,0x100) and ptr is not None and 0x100000<=ptr<0x132000:
+              if flags in (0,0x100) and ptr is not None and ((0x100000<=ptr<0x132000) or (0x10000<=ptr<0x32000)):
                  offsets.append((off,flags,ptr))
             lines.append(f'{name} ID=0x{cid:x} VALID_TABLE_RECORDS='+str(len(offsets)))
             for off,flags,ptr in offsets[:20]:
