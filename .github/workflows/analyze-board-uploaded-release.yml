@@ -1,0 +1,38 @@
+name: Honor70 Auto Audit Uploaded Board Release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  forensic-audit:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.tag_name == 'board-fne-an00-1.0.0.34-hmt'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out analysis scripts
+        uses: actions/checkout@v4
+      - name: Show free space before downloading firmware
+        run: df -h .
+      - name: Download Board ZIP parts from user-uploaded GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p incoming
+          gh release download board-fne-an00-1.0.0.34-hmt --repo "$GITHUB_REPOSITORY" --pattern 'HONOR70_BOARD_HMT_*' --dir incoming
+          ls -lh incoming/
+          test -f incoming/HONOR70_BOARD_HMT_SHA256_manifest.json
+      - name: Verify every piece and analyze signed bootchain artifacts read-only
+        run: |
+          python3 tools/audit_uploaded_honor70_board_release.py --asset-dir incoming --output-dir board_audit
+          python3 -m json.tool board_audit/board_audit_manifest.json | head -100
+      - name: Publish bootchain analysis artifact, not 2.57GB archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN
+          path: |
+            board_audit/selected_bootchain.zip
+            board_audit/board_audit_manifest.json
+          retention-days: 14
