@@ -1,0 +1,63 @@
+name: Honor70 Ghidra Decompile CHINESE BOARD LinuxLoader Unlock
+on:
+  push:
+    paths:
+      - '.github/workflows/board-ghidra-unlock.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve integrity-verified Chinese Board LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs report dist
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir inputs
+          echo '1b7cbcf021a929d4f0fc3deea0d5f0c6594ea1c6203da62d00dd4672f4651497  inputs/modules/LinuxLoader.efi' | sha256sum -c
+      - name: Install pinned Ghidra and JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Download pinned official Ghidra, check hash
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum --check
+          unzip -q /tmp/ghidra.zip -d dist
+          echo "GHIDRA_HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+          rm /tmp/ghidra.zip
+      - name: Decompile Board Fastboot, FRP and milestone handler functions
+        run: |
+          mkdir -p /tmp/board-ghidra
+          "$GHIDRA_HEADLESS" /tmp/board-ghidra BOARD_LINUXLOADER -import "$GITHUB_WORKSPACE/inputs/modules/LinuxLoader.efi" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript Honor70BoardABLUnlockAudit.java \
+            -analysisTimeoutPerFile 650 -max-cpu 2 -deleteProject > report/BOARD_GHIDRA_LOG.txt 2>&1 || {
+              tail -120 report/BOARD_GHIDRA_LOG.txt
+              exit 1
+            }
+          test -s report/BOARD_ABL_UNLOCK_DECOMPILATION.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('report/BOARD_ABL_UNLOCK_DECOMPILATION.txt').read_text(errors='replace')
+          out=[]
+          for line in s.splitlines():
+              if line.startswith(('STRING ','  XREF ','REFERENCE_COUNT','MILESTONE_CMD_IMMEDIATES','========== TARGET')):
+                  out.append(line)
+          print('REPORT_BYTES',len(s),'HIGHLIGHT_LINES',len(out))
+          print('\n'.join(out)[:45000])
+          Path('report/BOARD_FASTBOOT_MILESTONE_INDEX.txt').write_text('\n'.join(out)+'\n')
+          PY
+      - name: Save full static decompilation for comparisons
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_LINUXLOADER_GHIDRA_UNLOCK
+          path: report/
+          retention-days: 14
