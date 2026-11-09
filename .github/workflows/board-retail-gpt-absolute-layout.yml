@@ -45,7 +45,7 @@ jobs:
               for i in range(count):
                 e=buf[table_off+i*entrysz:table_off+(i+1)*entrysz]
                 if e[:16]==bytes(16):continue
-                name=e[56:128].decode('utf16le','replace').split('\0')[0]
+                name=e[56:128].decode('utf-16le','replace').split('\0')[0]
                 if not name:continue
                 start,end,attr=struct.unpack_from('<QQQ',e,32)
                 parts[name]={'start_lba':start,'end_lba':end,
