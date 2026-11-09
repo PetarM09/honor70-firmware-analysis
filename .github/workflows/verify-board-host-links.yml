@@ -17,7 +17,8 @@ jobs:
           import requests,re
           urls=[
             "https://fastupload.io/7b710c7b2781601c",
-            "https://drive.google.com/file/d/1r_2bxEmL5yLpK5x65rbvCG5eXsH_yHmI/view?usp=sharing",
+            "https://drive.google.com/file/d/1BhZRIq7RBsNq2d1KmGTBBz87b7Y1OQUB/view?usp=sharing",
+            "https://drive.usercontent.google.com/download?id=1BhZRIq7RBsNq2d1KmGTBBz87b7Y1OQUB&export=download&confirm=t",
           ]
           for u in urls:
             print("=== URL ===",u)
