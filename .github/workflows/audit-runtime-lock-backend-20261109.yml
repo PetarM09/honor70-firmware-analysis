@@ -1,0 +1,41 @@
+name: Honor70 Select Actual EDL Relevant Lock Storage Backend
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-runtime-lock-backend-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download Ghidra full VerifiedBootDxe reconstruction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input output
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir input
+      - name: Extract exact selector, secure-state checks, devinfo and QSEE conditions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('input/VERIFIEDBOOT_DXE_GHIDRA.txt').read_text(errors='replace')
+          blocks=re.split(r'(?=^======== FUNCTION )',d,flags=re.M)
+          targets=['0000153c','00003904','00003898','00002814','00002870','00002a1c','00001150','0000147c']
+          for t in targets:
+              b=next((b for b in blocks if b.startswith('======== FUNCTION '+t+' ')),None)
+              if not b:print('MISSING',t);continue
+              Path('output/'+t+'.txt').write_text(b)
+              print('\n'+'='*25,t,'LEN',len(b),'='*25)
+              print(b[:25000])
+          PY
+      - name: Archive exact storage decisions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_LOCK_BACKEND_EDL_PREDICATES
+          path: output/
+          retention-days: 14
