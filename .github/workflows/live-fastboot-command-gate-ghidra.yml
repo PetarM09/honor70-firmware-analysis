@@ -1,0 +1,65 @@
+name: Honor70 Explain Live Fastboot Getvar Command Not Allowed
+on:
+  push:
+    paths:
+      - 'tools/ghidra/Honor70FastbootCommandGateAudit.java'
+      - '.github/workflows/live-fastboot-command-gate-ghidra.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch original stock EEA ABL LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs analysis dist
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir inputs
+          f=$(find inputs -type f -name '*.efi' | while read f; do printf '%s %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"; done | grep '^ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087 ' | cut -d' ' -f2-)
+          test -n "$f"
+          cp "$f" inputs/EEA_LinuxLoader.efi
+          echo "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  inputs/EEA_LinuxLoader.efi" | sha256sum -c
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install pinned official Ghidra
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "GHIDRA_HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Decompile EEA Fastboot generic and OEM command handlers
+        run: |
+          mkdir -p /tmp/ghidra-abl-commandgate
+          "$GHIDRA_HEADLESS" /tmp/ghidra-abl-commandgate EEA_CMD_GATE \
+            -import "$GITHUB_WORKSPACE/inputs/EEA_LinuxLoader.efi" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript Honor70FastbootCommandGateAudit.java \
+            -analysisTimeoutPerFile 850 -max-cpu 2 -deleteProject \
+            > analysis/COMMAND_GATE_GHIDRA_LOG.txt 2>&1 || {
+               tail -140 analysis/COMMAND_GATE_GHIDRA_LOG.txt; exit 1;
+            }
+          test -s analysis/HONOR70_EEA_FASTBOOT_COMMAND_GATE_GHIDRA.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('analysis/HONOR70_EEA_FASTBOOT_COMMAND_GATE_GHIDRA.txt').read_text(errors='replace')
+          print('TOTAL_REPORT_CHARS',len(s))
+          lines=[x for x in s.splitlines() if x.startswith(('STRING','  XREF','TARGET','========== FUNCTION','FUNCTIONS_EXPORTED'))]
+          print('\n'.join(lines)[:30000])
+          for token in ('Command not allowed','Flashing Unlock is not allowed','getvar:','get_unlock_ability:'):
+            print('STRING_COUNT_IN_REPORT',token,s.count(token))
+          PY
+      - name: Save full static analysis and explicit command behavior
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_FASTBOOT_DENIAL_GATE_TRACE
+          path: analysis/
+          retention-days: 14
