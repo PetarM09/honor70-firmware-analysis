@@ -1,0 +1,56 @@
+name: Honor70 Trace VerifiedBoot Secure State Selection
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-verifiedboot-secure-storage.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch exact decompiler report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ghidra report
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir ghidra
+      - name: Trace storage selector, QSEE and raw partition access
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('ghidra')
+          matches=list(root.rglob('VERIFIEDBOOT_DXE_GHIDRA.txt'))
+          assert len(matches)==1, [str(x) for x in matches]
+          s=matches[0].read_text(errors='replace')
+          targets=['0000153c','00003904','00003898','00002814','00002870','00002a1c','00001150','0000147c','000037dc','00003970','00003a58','00001000']
+          blocks=re.split(r'(?=^======== FUNCTION )',s,flags=re.M)
+          selected=[]
+          for b in blocks:
+            if not b.startswith('======== FUNCTION '):continue
+            header=b.splitlines()[0]
+            if any(re.search(r'FUNCTION '+x+r'\b',header,re.I) for x in targets):
+              selected.append(b)
+          for term in ('devinfo','rpmB','Qseecom','keymaster','readSecurityState','SecurityState','Secure'):
+            occurrences=[]
+            for b in blocks:
+              if not b.startswith('======== FUNCTION '):continue
+              n=b.lower().count(term.lower())
+              if n:occurrences.append((b.splitlines()[0],n))
+            selected.append('===== TOKEN '+term+' =====\n'+repr(occurrences))
+          output='\n'.join(selected)
+          Path('report/VERIFIEDBOOT_BACKEND_SELECTOR.txt').write_text(output)
+          print('FUNCTION_BLOCKS',len(blocks)-1,'SELECTED',len(selected),'SIZE',len(output))
+          for block in selected:
+            print('\n'+block[:16000])
+          PY
+      - name: Archive selected decompiled functions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VERIFIEDBOOT_BACKEND_SELECTOR
+          path: report/
+          retention-days: 14
