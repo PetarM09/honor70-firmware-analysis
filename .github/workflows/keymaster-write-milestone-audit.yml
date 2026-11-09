@@ -1,0 +1,70 @@
+name: Honor70 Decompile Keymaster Write Milestone Guard
+on:
+  push:
+    paths:
+      - '.github/workflows/keymaster-write-milestone-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out analysis scripts
+        uses: actions/checkout@v4
+      - name: Retrieve stock signed Keymaster
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p samples analysis
+          gh run download 42539482630 --repo "$GITHUB_REPOSITORY" --name HONOR70_MATCHING_SECURE_BOOT_MODULES --dir samples
+          sha256sum samples/exports/km41.mbn
+          echo "c7f389b80444a9c9e3956efd427abbae1b5b2753b3c905107ca7888dca496afd  samples/exports/km41.mbn" | sha256sum -c
+      - name: Obtain pinned Ghidra
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          mkdir -p dist
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "GHIDRA_HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Configure Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Analyze KM41 read/write device state and milestone
+        run: |
+          mkdir -p /tmp/ghidra-km41
+          "$GHIDRA_HEADLESS" /tmp/ghidra-km41 HONOR70_KM41 \
+            -import "$GITHUB_WORKSPACE/samples/exports/km41.mbn" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript Honor70KM41WriteAndMilestoneAudit.java \
+            -analysisTimeoutPerFile 950 -max-cpu 2 -deleteProject \
+            > analysis/GHIDRA_KEYMASTER_LOG.txt 2>&1 || {
+              tail -120 analysis/GHIDRA_KEYMASTER_LOG.txt
+              exit 1
+            }
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('analysis/KM41_WRITE_MILESTONE_DECOMPILE.txt')
+          assert p.exists(), 'Ghidra script did not write expected report'
+          d=p.read_text(errors='replace')
+          print('REPORT_BYTES',len(d))
+          lines=d.splitlines()
+          for ln in lines:
+            if ln.startswith(('TABLE_ENTRY ','  SLOT','GHIDRA BASE','====== DECOMPILE','Function ')):
+              print(ln)
+          for block in re.split(r'(?=^======== FUNCTION )',d,flags=re.M):
+            if block.startswith('======== FUNCTION') and any(k in block.lower() for k in ('milestone','read_km','write_km','0x202','0x203','0x204')):
+              print('RELEVANT_CODE_SNIPPET\n',block[:11500])
+          PY
+      - name: Save complete read-only reverse engineering result
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_WRITE_FUSE_GUARD
+          path: analysis/
+          retention-days: 14
