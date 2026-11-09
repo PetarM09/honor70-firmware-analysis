@@ -1,0 +1,88 @@
+name: Honor70 Ghidra Decompile CHINESE BOARD VerifiedBootDxe
+on:
+  push:
+    paths:
+      - '.github/workflows/board-ghidra-verifiedboot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve independently verified Board XBL VerifiedBootDxe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs report dist
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir inputs
+          echo '81d653edd95411752d8c2695fa89113abf668f3e2d89754e7a380d4662e699cf  inputs/modules/VerifiedBootDxe.efi' | sha256sum -c
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Derive exact GUID offset from signed Board DXE
+        run: |
+          python3 -m pip install --quiet --break-system-packages pefile
+          python3 - <<'PY'
+          import pefile,hashlib
+          from pathlib import Path
+          p=Path('inputs/modules/VerifiedBootDxe.efi')
+          b=p.read_bytes()
+          pe=pefile.PE(data=b,fast_load=True)
+          pat=bytes.fromhex('91ff5e8eb621d347af2bc15a01e020ec')
+          pos=b.find(pat)
+          assert pos>=0,'Qualcomm Verified Boot protocol GUID must be present'
+          guid_rva=pe.get_rva_from_offset(pos)
+          entry_rva=pe.OPTIONAL_HEADER.AddressOfEntryPoint
+          with open('report/GUID_RVA_METADATA.txt','w') as f:
+             f.write(f'SHA256={hashlib.sha256(b).hexdigest()}\nGUID_RVA=0x{guid_rva:x}\nENTRY_RVA=0x{entry_rva:x}\n')
+          with open('.env.tmp','w') as f:
+             f.write(f'GUID_RVA=0x{guid_rva:x}\nENTRY_RVA=0x{entry_rva:x}\n')
+          print(Path('report/GUID_RVA_METADATA.txt').read_text())
+          PY
+          cat .env.tmp >> "$GITHUB_ENV"
+      - name: Install pinned Ghidra 12.2
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "GHIDRA_HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Reconstruct Board secure storage backend and unlock writer
+        run: |
+          mkdir -p /tmp/board-vb-ghidra
+          "$GHIDRA_HEADLESS" /tmp/board-vb-ghidra BOARD_VERIFIEDBOOT_DXE \
+            -import "$GITHUB_WORKSPACE/inputs/modules/VerifiedBootDxe.efi" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript Honor70VerifiedBootDxeAudit.java "$GUID_RVA" "$ENTRY_RVA" \
+            -analysisTimeoutPerFile 750 -max-cpu 2 -deleteProject > report/BOARD_VERIFIEDBOOT_GHIDRA_LOG.txt 2>&1 || {
+               tail -130 report/BOARD_VERIFIEDBOOT_GHIDRA_LOG.txt
+               exit 1
+            }
+          test -s report/VERIFIEDBOOT_DXE_GHIDRA.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('report/VERIFIEDBOOT_DXE_GHIDRA.txt').read_text(errors='replace')
+          parts=re.split(r'(?=^======== FUNCTION )',s,flags=re.M)
+          labels=('milestone','devinfo','rpmb','keymaster','qsee','secure','lock','state')
+          out=[]
+          for p in parts:
+            if not p.startswith('======== FUNCTION '):continue
+            if any(t in p.lower() for t in labels):
+              out.append(p[:6500])
+          print('FUNCTIONS',len(parts)-1,'INTERESTING',len(out),'SOURCE_BYTES',len(s))
+          text='\n'.join(out)
+          Path('report/BOARD_VERIFIEDBOOT_RELEVANT.txt').write_text(text)
+          print(text[:55000])
+          PY
+      - name: Archive comparative decompilation
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_VERIFIEDBOOT_GHIDRA
+          path: report/
+          retention-days: 14
