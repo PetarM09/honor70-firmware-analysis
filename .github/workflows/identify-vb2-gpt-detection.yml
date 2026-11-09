@@ -1,0 +1,74 @@
+name: Honor70 Determine VB2 GPT Detection via UTF16 Partition Strings
+on:
+  push:
+    paths:
+      - '.github/workflows/identify-vb2-gpt-detection.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve verified ABL LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p extracted analysis
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir extracted
+          python3 -m pip install --quiet --break-system-packages pefile capstone
+      - name: Find all UTF-16LE VB2 partition references and conditional checks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import pefile,hashlib,re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG,ARM64_OP_IMM
+          path=next(Path('extracted').glob('*.efi'))
+          b=path.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=b,fast_load=True)
+          base=pe.OPTIONAL_HEADER.ImageBase
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          instructions=[]
+          for section in pe.sections:
+              if section.Characteristics&0x20000000:
+                 instructions.extend(md.disasm(section.get_data(),base+section.VirtualAddress))
+          strings=['vbmeta','vbmeta_a','vbmeta_b','boot','frp','devinfo','verified','NO_AVB','Is_VERIFIED_BOOT_2']
+          out=['FILE_SHA256 '+hashlib.sha256(b).hexdigest()]
+          for string in strings:
+            for encoding in ('ascii','utf-16le'):
+              needle=string.encode(encoding)+(b'\x00\x00' if encoding=='utf-16le' else b'\x00')
+              locs=[m.start() for m in re.finditer(re.escape(needle),b,re.I)]
+              out.append('\n==== STRING '+string+' ENCODING '+encoding+' OCCURRENCES '+str(len(locs))+' ====')
+              for off in locs[:30]:
+                try:addr=pe.get_rva_from_offset(off)+base
+                except:continue
+                out.append('STRING OFFSET='+hex(off)+' VADDR='+hex(addr))
+                xrefs=[]
+                for index,inst in enumerate(instructions):
+                  if inst.mnemonic not in ('adrp','adr') or len(inst.operands)<2 or inst.operands[1].type!=ARM64_OP_IMM:continue
+                  if inst.mnemonic=='adr' and inst.operands[1].imm==addr:xrefs.append(index);continue
+                  if inst.mnemonic!='adrp' or (inst.operands[1].imm>>12)!=(addr>>12):continue
+                  reg=inst.operands[0].reg
+                  for j in range(index+1,min(len(instructions),index+10)):
+                    other=instructions[j]
+                    if other.address-inst.address>36:break
+                    if other.mnemonic=='add' and len(other.operands)>=3 and other.operands[1].type==ARM64_OP_REG and other.operands[2].type==ARM64_OP_IMM and other.operands[1].reg==reg and inst.operands[1].imm+other.operands[2].imm==addr:
+                        xrefs.append(index);break
+                out.append('CODE_XREFS='+str(len(xrefs)))
+                for idx in xrefs[:12]:
+                   out.append('REFERENCE '+hex(instructions[idx].address))
+                   out.extend(f'  {q.address:x} {q.mnemonic} {q.op_str}' for q in instructions[max(0,idx-9):min(len(instructions),idx+23)])
+          Path('analysis/ABL_VBMETA_STRING_XREFS.txt').write_text('\n'.join(out)+'\n')
+          for line in out:
+             if line.startswith(('====','STRING OFFSET','CODE_XREFS','REFERENCE')):print(line[:300])
+          PY
+      - name: Store evidence of VB2 runtime detection
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_VBMETA_UTF16_GPT_XREFS
+          path: analysis/
+          retention-days: 14
