@@ -1,0 +1,39 @@
+name: HONOR70 Validate Exact Devinfo DeviceInfo Magic and Flags
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-eea-deviceinfo-magic-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download signed original European LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          python3 -m pip install --quiet --break-system-packages pefile
+      - name: Check exact on-disk structure magic against ABL flags
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import pefile,hashlib
+          expected='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          matches=[p for p in Path('src').rglob('*.efi') if hashlib.sha256(p.read_bytes()).hexdigest()==expected]
+          assert matches, 'Exact signed LinuxLoader missing'
+          pe=pefile.PE(str(matches[0]),fast_load=True)
+          print('SIGNED_EEA_LINUXLOADER_SHA256',expected)
+          for rva in (0x1b36fc,0x1b3700,0x1b3704,0x1b3708,0x1e1b18):
+            b=pe.get_data(rva,24)
+            print('RVA',hex(rva),'FILE_OFFSET',hex(pe.get_offset_from_rva(rva)) if rva<pe.OPTIONAL_HEADER.SizeOfImage else 'OUTSIDE_IMAGE',
+                  'HEX',b.hex(),'PRINTABLE',''.join(chr(c) if 32<=c<127 else '.' for c in b))
+          candidate=pe.get_data(0x1b36fc,16)
+          print('FIRST_13_ASCII',repr(candidate[:13]))
+          print('STRUCT_FLAGS_OFFSETS_RELATIVE_TO_STATE_BASE',hex(0x1e1b25-0x1e1b18),hex(0x1e1b26-0x1e1b18))
+          PY
