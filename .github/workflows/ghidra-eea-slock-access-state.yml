@@ -1,0 +1,59 @@
+name: Honor70 Trace Original EEA Slock and Fastboot Access-State
+on:
+  push:
+    paths:
+      - 'tools/ghidra/Honor70ServiceSlockAndAccessStateAudit.java'
+      - '.github/workflows/ghidra-eea-slock-access-state.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 34
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain exact integrity-checked EEA LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input analysis dist
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          f=$(find input -type f -name '*.efi' | while read x; do printf '%s %s\n' "$(sha256sum "$x" | cut -d' ' -f1)" "$x"; done | grep '^ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087 ' | cut -d' ' -f2-)
+          test -n "$f"
+          cp "$f" input/EEA_LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  input/EEA_LinuxLoader.efi' | sha256sum -c
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Download and verify pinned Ghidra 12.2
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Analyze signed slock/hwdog and locked command context
+        run: |
+          mkdir -p /tmp/honor70_slock_provenance
+          "$HEADLESS" /tmp/honor70_slock_provenance HONOR70_EEA_SLOCK \
+             -import "$GITHUB_WORKSPACE/input/EEA_LinuxLoader.efi" \
+             -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+             -postScript Honor70ServiceSlockAndAccessStateAudit.java \
+             -analysisTimeoutPerFile 780 -max-cpu 2 -deleteProject \
+             > analysis/GHIDRA_SLOCK_AUDIT.log 2>&1 || { tail -160 analysis/GHIDRA_SLOCK_AUDIT.log; exit 1; }
+          test -s analysis/HONOR70_EEA_SLOCK_AND_LOCKED_MODE_STATE.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('analysis/HONOR70_EEA_SLOCK_AND_LOCKED_MODE_STATE.txt').read_text(errors='replace')
+          print('Ghidra report chars',len(s))
+          print('\n'.join(x for x in s.splitlines() if x.startswith(('ENTRY','STRING',' XREF','====== SERVICE FUNCTION')))[:20000])
+          PY
+      - name: Preserve only research findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_SLOCK_AND_ACCESS_STATE_GHIDRA
+          path: analysis/
+          retention-days: 14
