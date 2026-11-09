@@ -1,0 +1,62 @@
+name: Honor70 Correlate Board vs EEA FRP Permission Initialization
+on:
+  push:
+    paths:
+      - '.github/workflows/board-eea-frp-permission-context.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  correlate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Retrieve matching decompiler reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/board input/retail report
+          gh run download 42604503921 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_LINUXLOADER_GHIDRA_UNLOCK --dir input/board
+          gh run download 42533269683 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir input/retail
+      - name: Inspect all permission reads/writes and compare incoming FRP check
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, json
+          sources={
+           'BOARD': next(Path('input/board').rglob('BOARD_ABL_UNLOCK_DECOMPILATION.txt')).read_text(errors='replace'),
+           'EEA': next(Path('input/retail').rglob('GHIDRA_ABL_DECOMPILATION.txt')).read_text(errors='replace')
+          }
+          needles={
+            'BOARD':['DAT_001c1e88','FRP','frp','IsAllowUnlock','Flashing Unlock is not allowed','get_unlock_ability','VBRwDevice'],
+            'EEA':['DAT_001cdfd8','FRP','frp','IsAllowUnlock','Flashing Unlock is not allowed','get_unlock_ability','VBRwDevice'],
+          }
+          report={}
+          for key,source in sources.items():
+            lines=source.splitlines()
+            result={'report_bytes':len(source),'per_keyword':{},'functions':[]}
+            for token in needles[key]:
+              matches=[]
+              for i,line in enumerate(lines):
+                if token.lower() in line.lower():
+                  matches.append({'line':i+1,'context':'\n'.join(lines[max(0,i-4):min(len(lines),i+6)])[:1700]})
+              result['per_keyword'][token]=matches[:32]
+              print('KEYWORD',key,token,'COUNT',len(matches))
+              for item in matches[:8]:
+                print('  CONTEXT',item['line'],re.sub(r'\s+',' ',item['context'])[:700])
+            parts=re.split(r'(?=^========== TARGET )',source,flags=re.M)
+            for b in parts:
+              if not b.startswith('========== TARGET '):continue
+              hits=[x for x in needles[key] if x.lower() in b.lower()]
+              if hits:
+                result['functions'].append({'function':b.splitlines()[0],'matching':hits,'bytes':len(b)})
+            report[key]=result
+          Path('report/FRP_PERMISSION_BOARD_EEA_CONTEXT.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n')
+          PY
+      - name: Preserve relevant code contexts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FRP_PERMISSION_BOARD_VS_RETAIL
+          path: report/
+          retention-days: 14
