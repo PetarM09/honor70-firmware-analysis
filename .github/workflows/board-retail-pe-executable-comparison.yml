@@ -1,0 +1,81 @@
+name: Honor70 Compare Chinese Board vs EEA PE Executable Sections
+on:
+  push:
+    paths:
+      - '.github/workflows/board-retail-pe-executable-comparison.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - name: Retrieve exact Board PE, retail ABL and signed retail XBL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p board retail/abl retail/xbl retail/extracted report
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir board
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir retail/abl
+          gh run download 42527019027 --repo "$GITHUB_REPOSITORY" --name HONOR70_DEEP_BOOTCHAIN --dir retail/xbl
+          python3 -m pip install --quiet --break-system-packages uefi_firmware==1.16 pefile
+      - name: Decompress retail XBL verified boot driver
+        run: |
+          timeout 100 uefi-firmware-parser -b -e -o retail/extracted retail/xbl/keybins/xbl.elf > report/EEA_XBL_MODULES_LOG.txt 2>&1 || true
+          find retail/abl -type f | head -20
+          find retail/extracted -type f -name section1.pe | head -10
+      - name: Precisely compare PE .text, .rdata, .data and imported firmware
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,pefile,json
+          root=Path('retail')
+          retail_loader=[p for p in (root/'abl').rglob('*.efi')
+                         if hashlib.sha256(p.read_bytes()).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087']
+          assert len(retail_loader)==1,('EEA LinuxLoader not found',list((root/'abl').rglob('*.efi'))[:15])
+          retail_dxe=list((root/'extracted').rglob('file-a25f5839-4d55-428f-8f0b-5ce1d565f53e/section1.pe'))
+          assert len(retail_dxe)==1,('EEA VerifiedBootDxe not found',len(retail_dxe))
+          pairs={
+            'LinuxLoader':('board/modules/LinuxLoader.efi',str(retail_loader[0])),
+            'VerifiedBootDxe':('board/modules/VerifiedBootDxe.efi',str(retail_dxe[0]))
+          }
+          report=[]
+          for name,(ba,st) in pairs.items():
+            aa=Path(ba).read_bytes();bb=Path(st).read_bytes()
+            a,b=pefile.PE(data=aa),pefile.PE(data=bb)
+            def sections(pe):
+              return {s.Name.rstrip(b'\x00').decode('ascii','replace'):
+                  {'rva':s.VirtualAddress,'raw_length':s.SizeOfRawData,
+                   'bytes':s.get_data()} for s in pe.sections}
+            asec,bsec=sections(a),sections(b)
+            rec={'module':name,'board_sha256':hashlib.sha256(aa).hexdigest(),
+                 'retail_sha256':hashlib.sha256(bb).hexdigest(),
+                 'board_bytes':len(aa),'retail_bytes':len(bb),
+                 'sections':[]}
+            for section in sorted(set(asec)|set(bsec)):
+              x,y=asec.get(section),bsec.get(section)
+              if x is None or y is None:
+                item={'section':section,'present_in_board':x is not None,'present_in_stock':y is not None}
+              else:
+                one,two=x['bytes'],y['bytes']
+                changes=sum(p!=q for p,q in zip(one,two))
+                item={'section':section,
+                      'board_rva':hex(x['rva']),'retail_rva':hex(y['rva']),
+                      'board_size':len(one),'retail_size':len(two),
+                      'board_sha256':hashlib.sha256(one).hexdigest(),
+                      'retail_sha256':hashlib.sha256(two).hexdigest(),
+                      'byte_identical':one==two,'mismatch_bytes_in_overlap':changes,
+                      'overlap_total':min(len(one),len(two))}
+              rec['sections'].append(item)
+              print('SECTION',name,json.dumps(item))
+            report.append(rec)
+          Path('report/PE_FUNCTIONAL_SECTIONS_BOARD_EEA.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Upload independent PE comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_EEA_PE_TEXT_DATA_DIFF
+          path: report/
+          retention-days: 14
