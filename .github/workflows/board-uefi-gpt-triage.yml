@@ -1,0 +1,144 @@
+name: Honor70 Deep Board UEFI/GPT/Firehose Triage
+on:
+  push:
+    paths:
+      - '.github/workflows/board-uefi-gpt-triage.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - name: Fetch integrity-verified uploaded Board bootchain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifact board report extracted/abl extracted/xbl
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir artifact
+          unzip -q artifact/selected_bootchain.zip -d board
+          find board -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | head -55
+          echo 'd4ec54ade577420aba332424696e64e03efab0eeb984823ae968109c2f055fda  board/bootloaderimage/abl.elf' | sha256sum -c
+          echo '32475f11b3081d5c957cc52ee8fb71d786dbb756ee6e39067a60b1e16eb4b570  board/bootloaderimage/xbl.elf' | sha256sum -c
+          echo 'b548a4a0cfd3b21d08164600593881e5a1b57bdc960ab0a3437309bc92ba5f78  board/bootloaderimage/km41.mbn' | sha256sum -c
+      - name: Decompress UEFI boot chain and inventory
+        run: |
+          python3 -m pip install --quiet --break-system-packages uefi_firmware==1.16 pefile pyelftools
+          timeout 110 uefi-firmware-parser -b -e -o extracted/abl board/bootloaderimage/abl.elf > report/ABL_PARSER_LOG.txt 2>&1 || true
+          timeout 110 uefi-firmware-parser -b -e -o extracted/xbl board/bootloaderimage/xbl.elf > report/XBL_PARSER_LOG.txt 2>&1 || true
+          find extracted -type f | wc -l
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re,json,uuid,pefile,zipfile,struct
+          root=Path('extracted'); report=[]
+          marker=uuid.UUID('8e5eff91-21b6-47d3-af2b-c15a01e020ec').bytes_le
+          filenames=[
+            ('Board LinuxLoader filename candidate', 'file-', None),
+            ('Board VerifiedBootDxe FFS', 'file-a25f5839-4d55-428f-8f0b-5ce1d565f53e/', None)
+          ]
+          data=[]
+          selected={}
+          for p in sorted(root.rglob('*')):
+            if not p.is_file() or p.stat().st_size>15*1024*1024:continue
+            b=p.read_bytes()
+            rel=str(p)
+            sha=hashlib.sha256(b).hexdigest()
+            flags={label:len(re.findall(re.escape(pat),b,re.I))
+                   for label,pat in {
+                      'VERIFIED_BOOT_GUID':marker,'UNLOCK_CMD':b'get_unlock_ability',
+                      'UNLOCK_DENIED':b'Flashing Unlock is not allowed',
+                      'RPMB':b'rpmb','VERIFIED_BOOT_DXE':b'VerifiedBoot',
+                      'MILESTONE':b'Milestone Call','FRP':b'frp'
+                   }.items() if pat in b or pat.lower() in b.lower()}
+            if flags or 'a25f5839' in rel:
+                data.append({'path':rel,'size':len(b),'sha256':sha,'matches':flags})
+                if b'get_unlock_ability' in b and b[:2]==b'MZ':
+                    selected['LinuxLoader.efi']=p
+                if 'a25f5839' in rel.lower() and b[:2]==b'MZ':
+                    selected['VerifiedBootDxe.efi']=p
+          stock={'LinuxLoader.efi':'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087',
+                 'VerifiedBootDxe.efi':'f7a2778d20067ebe97a4be7fdd2bb79a06456b8ddb07ab8a37c63951ec1c0c55'}
+          chosen=[]
+          Path('report/modules').mkdir(parents=True,exist_ok=True)
+          for name,p in selected.items():
+             b=p.read_bytes()
+             new=Path('report/modules')/name
+             new.write_bytes(b)
+             pe=pefile.PE(data=b,fast_load=True)
+             chosen.append({'name':name,'path':str(p),'sha256':hashlib.sha256(b).hexdigest(),
+                            'stock_sha256':stock[name],'byte_identical_to_stock':hashlib.sha256(b).hexdigest()==stock[name],
+                            'entry_rva':pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                            'image_base':pe.OPTIONAL_HEADER.ImageBase,
+                            'machine':pe.FILE_HEADER.Machine})
+          manifest={'module_candidates':data,'selected':chosen,
+                    'abl_file_count':len(list((root/'abl').rglob('*'))),
+                    'xbl_file_count':len(list((root/'xbl').rglob('*')))}
+          Path('report/BOARD_UEFI_TRIAGE.json').write_text(json.dumps(manifest,indent=2))
+          print('MODULE_CANDIDATES',len(data),'SELECTED',chosen)
+          print('SAMPLE CANDIDATES',json.dumps(data[:22],indent=2)[:12000])
+          PY
+      - name: Inspect GPT, firehose and board flash instructions statically
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,json,re,hashlib
+          base=Path('board')
+          out={}
+          def gpt_summary(name,b):
+            result=[]
+            for pos in (m.start() for m in re.finditer(b'EFI PART',b)):
+              if pos<4096 or pos+92>len(b):continue
+              current=struct.unpack_from('<Q',b,pos+24)[0]
+              if current!=1:continue
+              table_lba,count,entrysize=struct.unpack_from('<QII',b,pos+72)
+              off=pos-4096+table_lba*4096
+              if entrysize not in (128,256) or count>512 or off+entrysize*count>len(b):continue
+              names=[]
+              for i in range(count):
+                e=b[off+i*entrysize:off+(i+1)*entrysize]
+                if e[:16]==b'\0'*16:continue
+                name=e[56:128].decode('utf-16le','replace').split('\0')[0]
+                if name:names.append(name)
+              result.append({'header_offset':pos,'partitions':names})
+            return result
+          for f in [base/'fastbootimage/gpt_both0.bin']:
+             out['GPT_'+f.name]=gpt_summary(f.name,f.read_bytes())
+          for f in sorted(base.glob('bootloaderimage/gpt_main*.bin')):
+             out[f.name]=gpt_summary(f.name,f.read_bytes())
+          for f in sorted(base.rglob('*.xml')):
+             s=f.read_bytes().decode('utf8','replace')
+             out[str(f)]={
+               'bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest(),
+               'programs':len(re.findall(r'<program\b',s,re.I)),
+               'label_candidates':sorted(set(re.findall(r'\blabel="([^"]{1,140})"',s)))[:180],
+               'mentions_sensitive':{term:bool(re.search(term,s,re.I)) for term in
+                                     ('oeminfo','frp','devinfo','gpt','xbl','abl','km41','userdata')}
+             }
+          for f in sorted(base.glob('bootloaderimage/prog_firehose*.elf')):
+             b=f.read_bytes()
+             strings=re.findall(rb'[ -~]{7,130}',b)
+             matches=[a.decode('ascii','replace') for a in strings
+                      if any(term in a.lower() for term in (b'authentication',b'verify',b'locked',b'program',b'restrict',b'firehose',b'rpmb',b'flash'))]
+             out[f.name]={'size':len(b),'sha256':hashlib.sha256(b).hexdigest(),'interesting_ascii':matches[:100]}
+          Path('report/BOARD_GPT_FIREHOSE_XML.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          for key,record in out.items():
+             if key.startswith('GPT_'):
+                print('BOARD_GPT',key,'LUNS',len(record),
+                  'COUNTS',[len(x['partitions']) for x in record],
+                  'UNIQUE_PARTITIONS',sorted(set(p for lun in record for p in lun['partitions']))[:180])
+             else:
+                print('BOARD_METADATA',key,str(record)[:1150])
+          PY
+      - name: Publish binary modules and full manifest for subsequent Ghidra
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_UEFI_GPT_DECOMPRESSED
+          path: |
+            report/BOARD_UEFI_TRIAGE.json
+            report/BOARD_GPT_FIREHOSE_XML.json
+            report/ABL_PARSER_LOG.txt
+            report/XBL_PARSER_LOG.txt
+            report/modules/
+          retention-days: 14
