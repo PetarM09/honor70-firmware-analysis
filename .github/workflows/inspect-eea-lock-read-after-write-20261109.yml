@@ -1,0 +1,32 @@
+name: HONOR70 Check EEA Unlock Readback and Wipe Ordering
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-eea-lock-read-after-write-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Retrieve original EEA decompilation artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src
+          gh run download 42628300431 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src
+      - name: Print exact lock state reader/writer code
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          txt=next(Path('src').rglob('HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt')).read_text(errors='replace')
+          chunks=re.split(r'(?=^=============== TARGET 0x)',txt,flags=re.M)
+          for key,lim in [('13008',3500),('13054',4200),('27850',5300),('43688',10000),('37ac0',5000),('13d58',1800)]:
+            b=next((x for x in chunks if x.startswith('=============== TARGET 0x'+key+' ')),None)
+            print('\n==============',key,'==============')
+            print(b[b.index('DECOMP '):][:lim] if b else 'MISSING')
+          PY
