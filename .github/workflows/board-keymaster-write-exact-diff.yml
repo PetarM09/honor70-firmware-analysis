@@ -1,0 +1,61 @@
+name: Honor70 Resolve Last Board Keymaster WRITE Difference
+on:
+  push:
+    paths:
+      - '.github/workflows/board-keymaster-write-exact-diff.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Retrieve exact Keymaster decompiler reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src/board src/eea result
+          gh run download 42605355587 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_KM41_EXACT_WRITE_MILESTONE --dir src/board
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_WRITE_FUSE_GUARD --dir src/eea
+      - name: Compute exact normalized unified diff of Board and stock secure writer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,difflib,hashlib
+          board=next(Path('src/board').rglob('BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt')).read_text(errors='replace')
+          eea=next(Path('src/eea').rglob('KM41_WRITE_MILESTONE_DECOMPILE.txt')).read_text(errors='replace')
+          def read_function(data,offset):
+            match=re.search(r'^===== TARGET '+offset+r' =====\s*',data,flags=re.M)
+            if not match:raise ValueError('Missing decompiled handler '+offset)
+            finish=re.search(r'^===== TARGET ',data[match.end():],re.M)
+            return data[match.end():match.end()+finish.start()] if finish else data[match.end():]
+          def normalize(code):
+            code=code.replace('FUN_00117898','KM_CHECK_FUSE').replace('FUN_00117980','KM_CHECK_FUSE')
+            code=re.sub(r'FUN_[0-9a-f]{8}','FUNC',code)
+            code=re.sub(r'DAT_[0-9a-f]{8}','GLOBAL',code)
+            code=re.sub(r'LAB_[0-9a-f]{8}','LABEL',code)
+            code=re.sub(r'\b0x[0-9a-f]{5,}\b','ADDRESS',code)
+            code=re.sub(r'(?m)^ENTRY [^\n]*\n','',code)
+            code=re.sub(r'(?m)^Function [^\n]*\n','',code)
+            return code
+          b=read_function(board,'118790');r=read_function(eea,'118878')
+          nb=normalize(b);nr=normalize(r)
+          left=nb.splitlines(keepends=True);right=nr.splitlines(keepends=True)
+          diff=''.join(difflib.unified_diff(left,right,fromfile='FNE-AN00-Board-km41',tofile='FNE-NX9-EEA-km41',n=8))
+          print('BOARD_SOURCE_SHA256',hashlib.sha256(b.encode()).hexdigest(),'LENGTH',len(b))
+          print('EEA_SOURCE_SHA256',hashlib.sha256(r.encode()).hexdigest(),'LENGTH',len(r))
+          print('NORMALIZED_EXACT_MATCH',nb==nr)
+          print('NORMALIZED_DIFF_LENGTH',len(diff))
+          print(diff[:23000])
+          Path('result/BOARD_VS_EEA_KEYMASTER_WRITE_NORMALIZED.diff').write_text(diff if diff else 'NO DIFFERENCES AFTER NORMALIZATION\n')
+          Path('result/BOARD_KEYMASTER_WRITE.txt').write_text(b)
+          Path('result/EEA_KEYMASTER_WRITE.txt').write_text(r)
+          PY
+      - name: Preserve comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KEYMASTER_WRITE_LAST_DIFFERENCES
+          path: result/
+          retention-days: 14
