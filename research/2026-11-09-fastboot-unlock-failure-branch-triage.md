@@ -114,3 +114,27 @@ At `0x12ea0`, initialization calls `0x176d8`, obtains a context pointer in `x19`
 Do not confuse context-relative `[x0,#0x104]` with absolute address `0x1b5104`: `0x176d8` resolves a context pointer from a global. All scans of arbitrary `[reg,#0x104]` include unrelated structures; only the linked call chain is relevant.
 
 **No device operation occurred:** both successful workflow runs operate only on the offline firmware.
+
+
+### Follow-up: exact source branch for +0x104 initialization
+
+A third successful [read-only workflow](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/42626334313) expanded the initializer around `0x12cf8` and its helper `0x13684`.
+
+```asm
+0x12ea0 bl #0x176d8       // same context resolver used by lock-state and Fastboot gate
+0x12ea4 mov x19,x0
+0x12ea8 bl #0x12cf8       // candidate source of a nonzero state
+0x12eac cbnz w0,#0x12ec4 // nonzero is stored into context
+0x12eb0 bl #0x13d58
+0x12eb4 cbz w0,#0x12ec0
+0x12eb8 mov w0,wzr        // force 0
+0x12ebc b #0x12ec4
+0x12ec0 bl #0x13684       // guard/canary helper, returns 0 on normal path
+0x12ec4 str w0,[x19,#0x104]
+```
+
+`0x13684` **does not retrieve a secret or secure device state**: its normal path calls `0x140b4` (stack guard comparison), then `mov w0,wzr`. It thus initializes +0x104 to zero on that branch. The nonzero value can enter from `0x12cf8`.
+
+At `0x12cf8`, ARM64 includes `mov w0,#0x82` followed by `bl #0x136a4` (the already identified OEMINFO record reader), checks another function `0x1bf74`, and later calls `0x1a7b0` before potentially returning 1. That establishes **an OEMINFO 0x82 (decimal 130) dependent initialization route** for the Fastboot access field. It does NOT establish that changing OEMINFO #130 unlocks the bootloader. Real lock persistence remains via a separate VBRwDevice/Keymaster protocol, and the meaning of each OEMINFO record's values remains unproven.
+
+This refines the interpretation of the gate: it is a device/context state derived at least partly from OEMINFO, rather than a direct live Keymaster unlock bit necessarily. Do **not** write OEMINFO to try to force `+0x104=1`, as this could brick or alter security without affecting permanent lock state.
