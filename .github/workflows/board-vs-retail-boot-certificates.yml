@@ -1,0 +1,84 @@
+name: Honor70 Compare Board vs EEA Signed Boot Trust Chains
+on:
+  push:
+    paths:
+      - '.github/workflows/board-vs-retail-boot-certificates.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  certificates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch exact signed boot partitions and engineering Board payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/eea input/board board report
+          gh run download 42527019027 --repo "$GITHUB_REPOSITORY" --name HONOR70_DEEP_BOOTCHAIN --dir input/eea
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir input/board
+          unzip -q input/board/selected_bootchain.zip bootloaderimage/abl.elf bootloaderimage/xbl.elf bootloaderimage/km41.mbn bootloaderimage/tz.mbn -d board
+          find input/eea -maxdepth 3 -type f -printf '%p %s\n' | head -40
+          python3 -m pip install --quiet --break-system-packages cryptography pyelftools
+      - name: Compare embedded X.509 certificate chain identity and rollback OUs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,re
+          from cryptography import x509
+          from cryptography.hazmat.primitives import serialization,hashes
+          from cryptography.x509.oid import NameOID
+          def digest(b): return hashlib.sha256(b).hexdigest()
+          def certs(data):
+            candidates={}
+            for p in range(len(data)-5):
+              if data[p:p+2]!=b'\x30\x82':continue
+              length=int.from_bytes(data[p+2:p+4], 'big')+4
+              if not 350<=length<=8000 or p+length>len(data):continue
+              blob=data[p:p+length]
+              try:
+                cert=x509.load_der_x509_certificate(blob)
+                subject=cert.subject.rfc4514_string()
+                issuer=cert.issuer.rfc4514_string()
+                # Reject arbitrary ASN.1 segments mistaken for certificates.
+                if not ('=' in subject and '=' in issuer):continue
+                pub=cert.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
+                entry={'offset':p,'length':length,'sha256_der':digest(blob),
+                       'subject':subject,'issuer':issuer,
+                       'pubkey_sha256':digest(pub),'self_issued':subject==issuer}
+                candidates[(entry['sha256_der'],p)]=entry
+              except (ValueError,TypeError,OverflowError):
+                pass
+            return list(candidates.values())
+          srcs={}
+          eea=Path('input/eea/keybins')
+          board=Path('board/bootloaderimage')
+          for name in ('abl.elf','xbl.elf','km41.mbn','tz.mbn'):
+             pair=[('eea',eea/name),('board',board/name)]
+             for region,path in pair:
+               if not path.is_file():continue
+               data=path.read_bytes()
+               cc=certs(data)
+               srcs[region+'_'+name]={'file_sha256':digest(data),'bytes':len(data),'cert_count':len(cc),'certificates':cc}
+               print('FILE',region,name,'SIZE',len(data),'CERTS',len(cc))
+               for c in cc[:20]:
+                  print('CERT offset',hex(c['offset']),'der',c['sha256_der'][:24],
+                         'key',c['pubkey_sha256'][:24],'SUBJECT',c['subject'][:350],
+                         'ISSUER',c['issuer'][:180])
+          for name in ('abl.elf','xbl.elf','km41.mbn','tz.mbn'):
+            a=srcs.get('board_'+name);b=srcs.get('eea_'+name)
+            if not a or not b:continue
+            ak={c['pubkey_sha256'] for c in a['certificates']}
+            bk={c['pubkey_sha256'] for c in b['certificates']}
+            print('KEY_OVERLAP',name,'BOARD_KEYS',len(ak),'EEA_KEYS',len(bk),
+                  'COMMON',len(ak&bk),'BOARD_ONLY',len(ak-bk),'RETAIL_ONLY',len(bk-ak))
+          Path('report/BOOT_SIGNING_CERTIFICATE_COMPARISON.json').write_text(json.dumps(srcs,indent=2,ensure_ascii=False)+'\n')
+          PY
+      - name: Save cryptographic identities and verified metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_EEA_SIGNING_CHAIN_COMPARE
+          path: report/
+          retention-days: 14
