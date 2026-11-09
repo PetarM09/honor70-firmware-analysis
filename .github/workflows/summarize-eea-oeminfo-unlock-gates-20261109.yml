@@ -1,0 +1,35 @@
+name: HONOR70 Summarize EEA OEMINFO Fastboot Unlock Ghidra
+on:
+  push:
+    paths:
+      - '.github/workflows/summarize-eea-oeminfo-unlock-gates-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact signed EEA Ghidra original audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src
+          gh run download 42628300431 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src
+      - name: Extract full read-only candidate logic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=next(Path('src').rglob('HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt')).read_text(errors='replace')
+          chunks=re.split(r'(?=^=============== TARGET 0x)',s,flags=re.M)
+          for address,limit in [('12cf8',11500),('12e90',6500),('136a4',7500),('1a7b0',15500),('1bf74',3000),('15690',8000),('43688',15000),('37ac0',8500),('13d58',2500)]:
+            b=next((c for c in chunks if c.startswith('=============== TARGET 0x'+address+' ')),None)
+            if not b:
+              print('MISSING',address);continue
+            p=b.find('DECOMP ')
+            print('\n================= FUNCTION',address,'==================')
+            print(b[p:p+limit] if p>=0 else b[:2500])
+          PY
