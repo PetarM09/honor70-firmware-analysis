@@ -1,0 +1,72 @@
+name: Honor70 Trace Engineering ABL Milestone and AVB Branches
+on:
+  push:
+    paths:
+      - '.github/workflows/board-milestone-avb-branch-proof.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Retrieve original authenticated Board and EEA UEFI binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p board eea evidence
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir board
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir eea
+          python3 -m pip install --quiet --break-system-packages capstone pefile
+      - name: Compare true ARM64 milestone call and control flow at signed loaders
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          import pefile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          board=Path('board/modules/LinuxLoader.efi')
+          stock=next(p for p in Path('eea').rglob('*.efi') if hashlib.sha256(p.read_bytes()).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087')
+          expected={'BOARD':'1b7cbcf021a929d4f0fc3deea0d5f0c6594ea1c6203da62d00dd4672f4651497','EEA':'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'}
+          lines=[]
+          m=Cs(CS_ARCH_ARM64,CS_MODE_ARM);m.detail=True
+          for label,p,start,end,call in [
+             ('BOARD',board,0x3550,0x3b50,0x3840),
+             ('EEA',stock,0x4020,0x4680,0x42a4)]:
+            buf=p.read_bytes();sha=hashlib.sha256(buf).hexdigest()
+            assert sha==expected[label],(label,sha)
+            pe=pefile.PE(data=buf,fast_load=True)
+            base=pe.OPTIONAL_HEADER.ImageBase
+            lines.append('\n========== '+label+' IMAGE '+str(len(buf))+' SHA256 '+sha+' ==========')
+            lines.append('PE_IMAGE_BASE '+hex(base))
+            lines.append('MILESTONE_STRING_MATCHES '+str([hex(x.start()) for x in re.finditer(re.escape(b'Sending Milestone Call'),buf)]))
+            for q in (b'NoAVBLoad_fw_ufsdev',b'LoadImageAndAuthVB2',b'Is_VERIFIED_BOOT_2',b'vbmeta',b'Flashing Unlock is not allowed'):
+              hits=list(re.finditer(re.escape(q),buf))
+              lines.append('STRING '+q.decode()+' COUNT '+str(len(hits))+' OFFSETS '+str([hex(x.start()) for x in hits[:10]]))
+            off=pe.get_offset_from_rva(start);code=buf[off:off+(end-start)]
+            instructions=list(m.disasm(code,base+start))
+            lines.append('INSTRUCTION_WINDOW '+hex(start)+'..'+hex(end)+' DECODED '+str(len(instructions)))
+            for inst in instructions:
+              if (call-0xe0)<=inst.address<=(call+0x130):
+                lines.append(f'{inst.address:08x} {inst.mnemonic:8} {inst.op_str}')
+            for target in (call,):
+              around=[x for x in instructions if x.address >= target-50 and x.address<target+70]
+              lines.append('CALLSITE_NEAR '+hex(target))
+              lines.extend(f'  {x.address:08x} {x.mnemonic:8} {x.op_str}' for x in around)
+            lines.append('BRANCHES_IN_WINDOW')
+            for inst in instructions:
+              if inst.mnemonic.startswith('b.') or inst.mnemonic in ('tbz','tbnz','cbz','cbnz','blr'):
+                if (call-0x160) <= inst.address <= (call+0x140):
+                  lines.append(f'{inst.address:08x} {inst.mnemonic:8} {inst.op_str}')
+          out=Path('evidence/BOARD_EEA_MILESTONE_AVB_ARM64.txt')
+          out.write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines)[:23000])
+          PY
+      - name: Archive exact disassembly and read-only branch evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_VS_EEA_MILESTONE_ARM64
+          path: evidence/
+          retention-days: 14
