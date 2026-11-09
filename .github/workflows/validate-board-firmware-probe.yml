@@ -1,0 +1,34 @@
+name: Honor70 Validate Board Firmware Probe
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-board-firmware-probe.yml'
+      - 'tools/board_firmware_probe.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile read-only FNE-NX9-BD probe
+        run: python3 -m py_compile tools/board_firmware_probe.py
+      - name: Test ZIP inventory without actual engineering firmware
+        run: |
+          python3 - <<'PY'
+          import zipfile,subprocess,json
+          from pathlib import Path
+          with zipfile.ZipFile('/tmp/FNE-NX9-BD_TEST_ONLY.zip','w') as z:
+             z.writestr('Factory/abl.elf',b'TEST ELF\x00Flashing unlock\x00NoAVBLoad\x00')
+             z.writestr('Factory/xbl.elf',b'TEST DXE\x00VerifiedBootDxe\x00keymaster\x00')
+             z.writestr('Factory/prog_firehose.elf',b'TEST LOADER\x00')
+          subprocess.run(['python3','tools/board_firmware_probe.py',
+             '/tmp/FNE-NX9-BD_TEST_ONLY.zip','--output','/tmp/BOARD_PROBE_TEST.json'],check=True)
+          d=json.loads(Path('/tmp/BOARD_PROBE_TEST.json').read_text())
+          assert len(d['interesting'])==3
+          assert d['read_only']
+          assert 'Flashing unlock' not in d['interesting'][0].get('firmware_string_matches_first_4MiB',[]) or d['interesting'][0]['sha256']
+          print('BOARD_PROBE_TESTS_PASS',d['source_size_bytes'])
+          PY
