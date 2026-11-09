@@ -1,0 +1,42 @@
+name: Honor70 Interpret Keymaster Device-State Permission Gate
+on:
+  push:
+    paths:
+      - '.github/workflows/interpret-km41-permission-gate.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Retrieve signed firmware Ghidra report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input reports
+          gh run download 42540051134 --repo "$GITHUB_REPOSITORY" --name HONOR70_KEYMASTER_CALLBACK_TABLE_GHIDRA --dir input
+      - name: Inspect key authorization and read/write guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('input/KM41_COMMAND_TABLE_AND_MILESTONE.txt').read_text(errors='replace')
+          patterns=['0010e144','0010e128','0011b174','0011b0e8','00117980','001185a8','00117a18','00109628']
+          for name in patterns:
+            rx=r'(?=^====== DECOMPILE [^\n]*TARGET '+name+r' =====)'
+            m=re.search(rx,d,re.M)
+            if m is None:continue
+            n=re.search(r'^====== DECOMPILE',d[m.end():],re.M)
+            segment=d[m.start():m.end()+n.start() if n else len(d)]
+            Path('reports/'+name+'.txt').write_text(segment)
+            print('\n'+segment[:14500])
+          PY
+      - name: Archive interpreted guard
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_MILESTONE_READ_WRITE_GUARD
+          path: reports/
+          retention-days: 14
