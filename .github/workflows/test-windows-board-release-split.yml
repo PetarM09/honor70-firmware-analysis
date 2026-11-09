@@ -1,0 +1,43 @@
+name: Honor70 Test Windows Board Release Splitter
+on:
+  push:
+    paths:
+      - 'tools/upload_honor70_board_windows.ps1'
+      - '.github/workflows/test-windows-board-release-split.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test splitting, SHA256 and byte-for-byte reconstruction on Windows
+        shell: powershell
+        run: |
+          $src = Join-Path $env:TEMP 'Honor_70_FNE-AN00_1.0.0.34_220721_HMT.zip'
+          $data = New-Object byte[] (2 * 1024 * 1024 + 21831)
+          $random = New-Object System.Random(42)
+          $random.NextBytes($data)
+          [System.IO.File]::WriteAllBytes($src, $data)
+          & .\tools\upload_honor70_board_windows.ps1 -ZipPath $src -ChunkMiB 1 -PrepareOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Splitter unsuccessful' }
+          $dir = Join-Path $env:TEMP 'HONOR70_BOARD_HMT_RELEASE_PARTS'
+          $manifest = Get-Content (Join-Path $dir 'HONOR70_BOARD_HMT_SHA256_manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.part_count -ne 3) { throw 'Unexpected number of parts' }
+          if ($manifest.safe_to_flash) { throw 'Flashing flag cannot be true' }
+          $pieces = @($manifest.parts | ForEach-Object { Join-Path $dir $_.name })
+          $target = Join-Path $env:TEMP 'honor70-reassembled.zip'
+          $out = [System.IO.File]::OpenWrite($target)
+          try {
+            foreach ($piece in $pieces) {
+              $f = [System.IO.File]::OpenRead($piece)
+              try { $f.CopyTo($out) } finally { $f.Dispose() }
+            }
+          } finally { $out.Dispose() }
+          $shaOriginal = (Get-FileHash $src -Algorithm SHA256).Hash
+          $shaReassembled = (Get-FileHash $target -Algorithm SHA256).Hash
+          if ($shaOriginal -ne $shaReassembled) { throw 'Source vs reassembled SHA mismatch' }
+          if ($shaOriginal.ToLowerInvariant() -ne $manifest.source_sha256) { throw 'Manifest source SHA mismatch' }
+          Write-Host 'WINDOWS_SPLIT_HASH_REASSEMBLE_TEST_PASSED'
