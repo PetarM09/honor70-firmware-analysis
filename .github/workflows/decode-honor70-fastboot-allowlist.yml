@@ -1,0 +1,78 @@
+name: Honor70 Decode Locked Fastboot Exact Command Allowlist
+on:
+  push:
+    paths:
+      - '.github/workflows/decode-honor70-fastboot-allowlist.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Fetch integrity-verified EEA LinuxLoader UEFI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          python3 -m pip install --quiet --break-system-packages pefile
+      - name: Decode actual pointer whitelist and classify live rejected commands
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import pefile,struct,json,hashlib
+          files=list(Path('input').rglob('*.efi'))
+          target='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          picks=[p for p in files if hashlib.sha256(p.read_bytes()).hexdigest()==target]
+          assert len(picks)==1,(len(picks),[str(p) for p in picks])
+          data=picks[0].read_bytes()
+          pe=pefile.PE(data=data,fast_load=True)
+          base=pe.OPTIONAL_HEADER.ImageBase
+          table=0x1b41b0
+          count=0x188//8
+          entries=[]
+          for i in range(count):
+            rva=table+8*i
+            off=pe.get_offset_from_rva(rva)
+            ptr=struct.unpack_from('<Q',data,off)[0]
+            if ptr < base or ptr-base>=pe.OPTIONAL_HEADER.SizeOfImage:
+              s='<INVALID_POINTER>'
+            else:
+              str_off=pe.get_offset_from_rva(ptr-base)
+              raw=data[str_off:str_off+180].split(b'\0')[0]
+              s=raw.decode('ascii','replace')
+            entries.append({"index":i,"entry_rva":f'0x{rva:x}',"str_ptr":f'0x{ptr:x}',"label":s})
+            print('LOCKED_BOOTLOADER_ALLOWLIST',i,f'0x{rva:x}',f'0x{ptr:x}',json.dumps(s,ensure_ascii=False))
+          labels=[e['label'] for e in entries]
+          probes=[
+             'getvar:product','getvar:version','getvar:version-bootloader','getvar:secure',
+             'getvar:unlocked','getvar:is-userspace','getvar:current-slot',
+             'getvar:slot-count','flashing get_unlock_ability',
+             'oem get-bootinfo','oem lock-state info',
+             'getvar:vendorcountry','getvar:max-download-size','getvar:devicemodel',
+             'oem get-build-number','oem get-product-model',
+          ]
+          for name in probes:
+            matched=[x for x in labels if name.startswith(x)]
+            print('LIVE_COMMAND',json.dumps(name),'MATCHES_ALLOWLIST_PREFIX',json.dumps(matched))
+          Path('report/EEA_FASTBOOT_LOCKED_COMMAND_ALLOWLIST.json').write_text(json.dumps({
+             'eea_linuxloader_sha256':target,
+             'gate_function_rva':'0x134c0',
+             'dispatcher_rva':'0x22c7c',
+             'table_rva':hex(table),
+             'table_bytes':0x188,
+             'table_entries':count,
+             'entries':entries,
+             'probe_prefix_matches':{name:[x for x in labels if name.startswith(x)] for name in probes},
+             'note':"Read-only reconstructed firmware table. Per-entry string match still depends on exact custom Ascii compare and runtime state; no phone operations."
+          },indent=2)+'\n')
+          PY
+      - name: Preserve exact pointer evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_LOCKED_FASTBOOT_ALLOWLIST
+          path: report/
+          retention-days: 14
