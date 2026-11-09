@@ -1,0 +1,49 @@
+name: Honor70 Explain Exact AVB2 Branch and Milestone
+on:
+  push:
+    paths:
+      - '.github/workflows/explain-abl-avb2-branch.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download selected exact stock LinuxLoader Ghidra report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input report
+          gh run download 42541136432 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_AVB2_MILESTONE_GHIDRA --dir input
+      - name: Extract decision predicates and precise milestone callsite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('input/HONOR70_ABL_VERIFIED_BOOT_MILESTONE_XREF.txt').read_text(errors='replace')
+          blocks=re.split(r'(?=^========== TARGET )',src,flags=re.M)
+          keys=['00003144','00006dd0','00007904','00005258','00001190']
+          for key in keys:
+            match=next((block for block in blocks if block.startswith('========== TARGET '+key+' ')),None)
+            if match is None:
+              print('NOT_FOUND '+key);continue
+            Path('report/ABL_'+key+'.txt').write_text(match)
+            print('\n===== FUNCTION '+key+' CHARS '+str(len(match))+' =====')
+            if key=='00003144':
+              lines=match.splitlines()
+              for i,line in enumerate(lines):
+                if any(token in line for token in ('milestone','Milestone','NoAVB','AVB','vbmeta','0x204','FUN_0000')):
+                  print('AT_LINE',i,' '.join(lines[max(0,i-3):min(len(lines),i+5)])[:750])
+              print('HEAD\n'+match[:17500])
+            else:
+              print(match[:22000])
+          PY
+      - name: Publish exact selected functions
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_AVB2_MILESTONE_EXACT_BRANCHES
+          path: report/
+          retention-days: 14
