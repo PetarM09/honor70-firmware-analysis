@@ -1,0 +1,58 @@
+name: Honor70 Test Auto Board Release Audit Offline
+on:
+  push:
+    paths:
+      - 'tools/audit_uploaded_honor70_board_release.py'
+      - '.github/workflows/test-board-release-audit-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make fake split release parts (no external assets)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib,zipfile
+          p=Path('incoming');p.mkdir()
+          zip_path=Path('dummy.zip')
+          files={
+            'test/Firmware/bootloaderimage/abl.elf':b'FAKE_A'*100,
+            'test/Firmware/bootloaderimage/km41.mbn':b'FAKE_K'*150,
+            'test/Firmware/bootloaderimage/xbl.elf':b'FAKE_X'*300,
+            'test/Firmware/bootloaderimage/tz.mbn':b'FAKE_T'*110,
+            'test/Firmware/fastbootimage/oeminfo.mbn':b'EXCLUDED_OEMINFO'*100,
+            'test/Firmware/fastbootimage/frp.img':b'EXCLUDED_FRP'*100,
+            'test/Firmware/bootloaderimage/rawprogram0.xml':b'<program label="test" />'
+          }
+          with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_STORED) as z:
+            for k,v in files.items(): z.writestr(k,v)
+          raw=zip_path.read_bytes()
+          parts=[raw[:len(raw)//2],raw[len(raw)//2:]]
+          manifest={"format":"consecutive-byte-split-v1","source":"synthetic-board.zip","source_bytes":len(raw),
+            "source_sha256":hashlib.sha256(raw).hexdigest(),"part_count":2,"parts":[]}
+          for i,data in enumerate(parts,1):
+            name=f'HONOR70_BOARD_HMT_part_{i:03}.bin'
+            (p/name).write_bytes(data)
+            manifest["parts"].append({"name":name,"bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()})
+          (p/'HONOR70_BOARD_HMT_SHA256_manifest.json').write_text(json.dumps(manifest))
+          PY
+      - name: Check digest verification, safe extraction and excluded partitions
+        run: |
+          python3 tools/audit_uploaded_honor70_board_release.py --asset-dir incoming --output-dir board_audit
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,zipfile
+          report=json.loads(Path('board_audit/board_audit_manifest.json').read_text())
+          assert not report['safe_to_flash']
+          assert not (Path('board_audit')/'reconstructed_board.zip').exists()
+          with zipfile.ZipFile('board_audit/selected_bootchain.zip') as z:
+            names=z.namelist()
+            assert any('abl.elf' in x for x in names)
+            assert not any('oeminfo' in x.lower() or 'frp.img' in x.lower() for x in names)
+          print('HONOR70_AUTOMATIC_RELEASE_AUDIT_TEST_PASS')
+          PY
