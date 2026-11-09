@@ -1,0 +1,31 @@
+name: HONOR70 Download EDL Lab ZIP
+on:
+  push:
+    paths:
+      - 'tools/edl_lab/**'
+      - '.github/workflows/export-honor70-edl-lab-zip.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate EDL lab scripts and build shareable ZIP
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/edl_lab/honor70_edl_lab.py tools/edl_lab/inspect_devinfo_backup.py
+          mkdir -p export/honor70_edl_lab
+          cp tools/edl_lab/honor70_edl_lab.py tools/edl_lab/inspect_devinfo_backup.py tools/edl_lab/README.md export/honor70_edl_lab/
+          cd export
+          zip -q -r -9 HONOR70_EDL_LAB_GITHUB.zip honor70_edl_lab
+          unzip -t HONOR70_EDL_LAB_GITHUB.zip
+          sha256sum HONOR70_EDL_LAB_GITHUB.zip
+      - name: Upload direct downloadable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EDL_LAB_GITHUB
+          path: export/HONOR70_EDL_LAB_GITHUB.zip
+          retention-days: 30
