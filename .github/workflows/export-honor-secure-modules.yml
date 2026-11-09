@@ -1,0 +1,107 @@
+name: Honor70 Export Stock Keymaster Secure Modules
+on:
+  push:
+    paths:
+      - '.github/workflows/export-honor-secure-modules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch firmware release parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p parts results
+          gh release download v8.0.0.290 --repo "$GITHUB_REPOSITORY" --pattern "HONOR70_FW_part_*" --dir parts
+          df -h .
+      - name: Extract and inspect nested ZIP safely
+        run: |
+          python3 - <<'PY'
+          import bisect, zipfile, shutil, os, hashlib
+          from pathlib import Path
+
+          files=sorted(Path('parts').glob('HONOR70_FW_part_*'))
+          expected=[f'HONOR70_FW_part_aa{chr(97+i)}' for i in range(14)]
+          assert [p.name for p in files]==expected, 'Firmware parts missing or out of order'
+          class Joined:
+              def __init__(self,files):
+                  self.fs=[p.open('rb') for p in files]; self.ends=[0]
+                  for p in files:self.ends.append(self.ends[-1]+p.stat().st_size)
+                  self.pos=0
+              def seekable(self):return True
+              def tell(self):return self.pos
+              def seek(self,o,w=0):
+                  self.pos=([0,self.pos,self.ends[-1]][w])+o
+                  if self.pos<0:raise ValueError('negative seek')
+                  return self.pos
+              def read(self,n=-1):
+                  if n is None or n<0:n=self.ends[-1]-self.pos
+                  n=min(n,max(0,self.ends[-1]-self.pos))
+                  out=bytearray()
+                  while n:
+                      i=bisect.bisect_right(self.ends,self.pos)-1
+                      if i>=len(self.fs):break
+                      count=min(n,self.ends[i+1]-self.pos)
+                      f=self.fs[i];f.seek(self.pos-self.ends[i])
+                      c=f.read(count)
+                      if len(c)!=count:raise IOError('incomplete firmware piece')
+                      out.extend(c); self.pos+=count;n-=count
+                  return bytes(out)
+              def close(self):
+                  for f in self.fs:f.close()
+
+          reader=Joined(files)
+          inner_path=Path('update_sd_base.zip')
+          try:
+              with zipfile.ZipFile(reader) as outer:
+                  info=outer.getinfo('Software/dload/update_sd_base.zip')
+                  print('OUTER_MEMBER',info.filename,info.file_size,info.compress_size)
+                  free=shutil.disk_usage('.').free
+                  if free < info.file_size+1024**3:
+                      raise RuntimeError('Insufficient disk space to safely extract inner ZIP')
+                  with outer.open(info) as stream,inner_path.open('wb') as dst:
+                      shutil.copyfileobj(stream,dst,8*1024*1024)
+          finally:
+              reader.close()
+
+          from pathlib import Path
+          import re
+          names=['km41.mbn','tz.mbn','uefi_sec.mbn','rtice.mbn','storsec.mbn','featenabler.mbn','cpucp.elf']
+          Path('exports').mkdir(exist_ok=True)
+          lines=[]
+          with zipfile.ZipFile(inner_path) as z:
+            for name in names:
+              raw=z.read('image/'+name)
+              dst=Path('exports')/name
+              dst.write_bytes(raw)
+              ascii_chunks=re.findall(rb'[ -~]{5,180}',raw)
+              hits=[x.decode('ascii','replace') for x in ascii_chunks if any(t in x.lower() for t in (b'keymaster',b'rpmb',b'unlock',b'devinfo',b'write_km',b'read_km',b'keyblob',b'milestone',b'qsee',b'get_feature'))]
+              lines.append('=== '+name+' bytes='+str(len(raw))+' sha256='+hashlib.sha256(raw).hexdigest()+' ===')
+              lines+=hits[:100]
+          Path('results/SECURE_MODULES_STRINGS.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines)[:25000])
+          PY
+      - name: Identify security binary formats
+        run: |
+          for f in exports/*; do
+            echo "===== $f ====="
+            file "$f"
+            readelf -h "$f" 2>&1 | head -8 || true
+            xxd -l 80 "$f"
+          done > results/SECURE_MODULE_FORMATS.txt
+          cat results/SECURE_MODULE_FORMATS.txt
+      - name: Archive stock signed binaries for repeatable offline analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_MATCHING_SECURE_BOOT_MODULES
+          path: |
+            exports/
+            results/SECURE_MODULES_STRINGS.txt
+            results/SECURE_MODULE_FORMATS.txt
+          retention-days: 14
