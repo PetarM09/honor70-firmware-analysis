@@ -1,0 +1,38 @@
+name: Honor70 Summarize ABL Milestone Machine Branch
+on:
+  push:
+    paths:
+      - '.github/workflows/summarize-abl-milestone-machine.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download the exact ARM64 instruction report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts summarized
+          gh run download 42541437378 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MILESTONE_ARM64_BRANCH --dir artifacts
+      - name: Print verified branch and all caller links
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path('artifacts/ABL_MILESTONE_EXACT_ARM64.txt').read_text(errors='replace')
+          print('FULL_REPORT_LENGTH',len(d))
+          parts=d.split('===== ')
+          for marker in ('MACHINE CODE RANGE 0x3e80','CALLER_XREF 0x3144','CALLER_XREF 0x6dd0','CALLER_XREF 0x7904'):
+            a=next((p for p in parts if p.startswith(marker)),None)
+            print('\n===== '+marker+' =====\n'+(a[:14500] if a is not None else 'NOT FOUND'))
+          Path('summarized/ABL_MILESTONE_BRANCH_SUMMARY.txt').write_text(d)
+          PY
+      - name: Upload selected analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_AVB_MILESTONE_MACHINE_BRANCH_SUMMARY
+          path: summarized/
+          retention-days: 14
