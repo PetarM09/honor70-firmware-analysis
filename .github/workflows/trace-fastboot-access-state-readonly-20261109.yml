@@ -1,0 +1,81 @@
+name: Honor70 Trace Fastboot Access State Field Readonly
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-fastboot-access-state-readonly-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact EEA LinuxLoader (SHA256 verified)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src out
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src
+          f=$(find src -type f -name '*.efi' | while read x; do printf '%s %s\n' "$(sha256sum "$x" | cut -d' ' -f1)" "$x"; done | grep '^ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087 ' | cut -d' ' -f2-)
+          test -n "$f"
+          cp "$f" src/EEA_LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  src/EEA_LinuxLoader.efi' | sha256sum -c
+          python3 -m pip install --quiet --break-system-packages capstone
+      - name: Enumerate ARM64 callers of 0x13608 and context +0x104 users
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM
+          import hashlib
+          path=Path('src/EEA_LinuxLoader.efi')
+          data=path.read_bytes()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          md.detail=True
+          instructions=list(md.disasm(data[0x1000:0xb0000],0x1000))
+          lines=['EEA signed LinuxLoader SHA256 '+hashlib.sha256(data).hexdigest(),
+                 'READ ONLY: direct ARM64 instruction evidence; no state/firmware changed.',
+                 'WARNING: adjacent instruction windows are not decompiled control-flow/call graphs.',
+                 '']
+          def fmt(i):
+            return f'{i.address:#x} {i.mnemonic} {i.op_str}'
+          def neighborhood(k,before=12,after=18):
+            return '\n'.join(('>> ' if j==k else '   ')+fmt(instructions[j]) for j in range(max(0,k-before),min(len(instructions),k+after+1)))
+          callsites=[]
+          for k,i in enumerate(instructions):
+            if i.mnemonic=='bl' and i.operands and i.operands[0].type==ARM64_OP_IMM and i.operands[0].imm==0x13608:
+              callsites.append(k)
+          lines.append('BL_TARGET_0x13608_CALL_COUNT '+str(len(callsites)))
+          for k in callsites:
+            lines.extend(['', '=== BL_13608 '+fmt(instructions[k])+' ===',neighborhood(k)])
+            for j in range(k+1,min(len(instructions),k+25)):
+              q=instructions[j]
+              if q.address!=instructions[j-1].address+4:break
+              if any(op.type==ARM64_OP_MEM and op.mem.disp==0x104 for op in q.operands):
+                lines.append('FOLLOWING_FIELD_0x104 '+fmt(q)+' DELTA_INSNS '+str(j-k))
+              if q.mnemonic in ('ret','b','br'): break
+          lines.append('\n=== ALL +0x104 MEMORY OPERATIONS (filter to research-relevant addresses) ===')
+          n=0
+          for k,i in enumerate(instructions):
+            if i.mnemonic.startswith(('ldr','str','ldur','stur','ldp','stp')) and any(op.type==ARM64_OP_MEM and op.mem.disp==0x104 for op in i.operands):
+              n+=1
+              if n<=80:
+                lines.append('FIELD_0x104 '+fmt(i))
+                lines.append(neighborhood(k,4,5))
+          lines.append('TOTAL_FIELD_0x104_OPS '+str(n))
+          lines.append('\n=== VERIFIED COMMAND GATE RAW INSTRUCTIONS ===')
+          for lo,hi in [(0x134c0,0x13548),(0x13608,0x13620),(0x22c7c,0x22f7c)]:
+            lines.append(f'RANGE {lo:#x}..{hi:#x}')
+            lines.extend(fmt(i) for i in instructions if lo<=i.address<hi)
+          report='\n'.join(lines)+'\n'
+          Path('out/ACCESS_STATE_XREFS.txt').write_text(report)
+          print(report[:29000])
+          PY
+      - name: Upload static XREF report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FASTBOOT_ACCESS_STATE_XREFS
+          path: out/ACCESS_STATE_XREFS.txt
+          retention-days: 14
