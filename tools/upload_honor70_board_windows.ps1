@@ -74,7 +74,7 @@ $tags = @(& gh release list --repo $Repo --limit 100 --json tagName --jq '.[].ta
 if ($LASTEXITCODE -ne 0) { throw 'Cannot list GitHub releases.' }
 if (-not ($tags -contains $Tag)) {
     Write-Host "Creating GitHub release $Tag ..."
-    & gh release create $Tag --repo $Repo --title 'Honor 70 FNE-AN00 BD 1.0.0.34 HMT' --notes 'Original board firmware split for read-only reverse engineering. DO NOT FLASH. See SHA256 manifest.' --prerelease --latest=false
+    & gh release create $Tag --repo $Repo --title 'Honor 70 FNE-AN00 BD 1.0.0.34 HMT' --notes 'Original board firmware split for read-only reverse engineering. DO NOT FLASH. See SHA256 manifest.' --prerelease --latest=false --draft
     if ($LASTEXITCODE -ne 0) { throw 'Cannot create release.' }
 }
 $remoteNames = @(& gh release view $Tag --repo $Repo --json assets --jq '.assets[].name')
@@ -92,5 +92,8 @@ foreach ($asset in $assets) {
     if ($LASTEXITCODE -ne 0) { throw "Upload failed: $name. Re-run for retry." }
     $remoteNames += $name
 }
+Write-Host 'All parts uploaded. Publishing release so the read-only CI audit can start...'
+& gh release edit $Tag --repo $Repo --draft=false
+if ($LASTEXITCODE -ne 0) { throw 'Upload finished but publishing failed; run: gh release edit TAG --repo REPO --draft=false' }
 Write-Host 'UPLOAD_COMPLETE'
 Write-Host ("RELEASE_URL https://github.com/{0}/releases/tag/{1}" -f $Repo,$Tag)
