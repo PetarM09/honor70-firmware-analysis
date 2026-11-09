@@ -1,0 +1,74 @@
+name: HONOR70 Board OEMINFO 130 RDMODE Candidate Static Audit
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-board-oeminfo-rdmode-130-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch original Board split-release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p incoming output
+          gh release download board-fne-an00-1.0.0.34-hmt --repo "$GITHUB_REPOSITORY" --pattern 'HONOR70_BOARD_HMT_*' --dir incoming
+          test -f incoming/HONOR70_BOARD_HMT_SHA256_manifest.json
+      - name: Verify exact split archive then fingerprint OEMINFO 130 payload structure offline
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile, hashlib, json, re,collections
+          root=Path('incoming')
+          manifest=json.loads((root/'HONOR70_BOARD_HMT_SHA256_manifest.json').read_text())
+          assert manifest['format']=='consecutive-byte-split-v1'
+          reconstructed=Path('output/original_board.zip')
+          total=0
+          full=hashlib.sha256()
+          with reconstructed.open('wb') as dst:
+            for part in manifest['parts']:
+              p=root/part['name']
+              assert p.stat().st_size==part['bytes']
+              h=hashlib.sha256()
+              with p.open('rb') as src:
+                while True:
+                  buf=src.read(8*1024*1024)
+                  if not buf:break
+                  h.update(buf);full.update(buf);dst.write(buf);total+=len(buf)
+              assert h.hexdigest()==part['sha256']
+              print('VERIFIED',part['name'],p.stat().st_size,flush=True)
+          assert total==manifest['source_bytes'] and full.hexdigest()==manifest['source_sha256']
+          result={'archive_sha256':full.hexdigest(),'archive_size':total,'candidates':[], 'research_note':'Do not flash this Board OEMINFO onto a retail EEA handset without device-specific authorization/recovery; any apparent record offsets are not a validated write path.'}
+          with zipfile.ZipFile(reconstructed) as archive:
+            candidates=[x for x in archive.infolist() if x.filename.lower().replace('\\','/').endswith('/oeminfo.mbn')]
+            print('OEMINFO_FILES',len(candidates),flush=True)
+            for entry in candidates:
+              if entry.file_size>256*1024*1024:continue
+              data=archive.read(entry)
+              b=bytes(data)
+              out={'name':entry.filename,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'nonzero_fraction':round(sum(x!=0 for x in b)/max(1,len(b)),6)}
+              signatures=[b'0XEED6030008',b'fastboot flash:rdmodev1',b'rdmod',b'certify',b'RSA',b'0x82']
+              out['ascii_token_counts']={x.decode():b.count(x) for x in signatures}
+              needle=(0x82).to_bytes(4,'little')
+              offsets=[m.start() for m in re.finditer(re.escape(needle),b)]
+              out['oeminfo_decimal130_u32le_offsets']=offsets[:100]
+              out['oeminfo_decimal130_u32le_total']=len(offsets)
+              out['fraction_ff']=round(b.count(b'\xff')/max(1,len(b)),6)
+              out['fraction_00']=round(b.count(b'\x00')/max(1,len(b)),6)
+              print('FACTORY_OEMINFO',json.dumps(out),flush=True)
+              result['candidates'].append(out)
+          (Path('output')/'BOARD_OEMINFO_130_STATIC_METADATA.json').write_text(json.dumps(result,indent=2))
+          reconstructed.unlink()
+          PY
+      - name: Upload only non-sensitive structure report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_OEMINFO_130_STRUCTURE
+          path: output/BOARD_OEMINFO_130_STATIC_METADATA.json
+          retention-days: 14
