@@ -1,0 +1,47 @@
+name: Honor70 Extract Keymaster Exact Security Guards
+on:
+  push:
+    paths:
+      - '.github/workflows/extract-keymaster-exact-guards.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch decompiled Keymaster
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input out
+          gh run download 42539726689 --repo "$GITHUB_REPOSITORY" --name HONOR70_KEYMASTER_MILESTONE_GHIDRA --dir input
+      - name: Print exact command router and milestone guards
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          d=Path('input/KM41_MILESTONE_SECURITY_MAP.txt').read_text(errors='replace')
+          blocks=re.split(r'(?=^======== FUNCTION )',d,flags=re.M)
+          targets=['0010945c','00109628','00109830','0010a350','0010c4d4','0010c99c','0010d064','0010d7c8','00117a18','001185a8','0011b174']
+          for addr in targets:
+            block=next((b for b in blocks if b.startswith('======== FUNCTION '+addr)),None)
+            if not block:
+              print('MISSING '+addr)
+              continue
+            Path('out/FUNCTION_'+addr+'.txt').write_text(block)
+            print('\n===== '+addr+' CHARACTERS '+str(len(block))+' =====')
+            if addr in ('00109628','00109830','0010c4d4','0010c99c','0010d064','00117a18'):
+              print(block[:18000])
+            else:
+              terms=[k for k in ['milestone','0x202','0x203','0x204','0x2202','0x2203','0x2204','qsee_blow_sw_fuse','qsee_get_sw_fuse'] if k in block.lower()]
+              print('TOKENS '+repr(terms)+' FUNCTIONS '+repr(re.findall(r'FUN_[0-9a-f]{8}',block)[:60]))
+          PY
+      - name: Publish exact code paths
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_COMMAND_ROUTING_GUARDS
+          path: out/
+          retention-days: 14
