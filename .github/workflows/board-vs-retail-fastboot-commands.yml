@@ -1,0 +1,69 @@
+name: Honor70 Compare Engineering vs EEA Fastboot Registered Commands
+on:
+  push:
+    paths:
+      - '.github/workflows/board-vs-retail-fastboot-commands.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch actual Board and EEA LinuxLoader PE32+ binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p board retail report
+          gh run download 42604105860 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_UEFI_GPT_DECOMPRESSED --dir board
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir retail
+          python3 -m pip install --quiet --break-system-packages pefile
+      - name: Compare actual null-terminated fastboot command names and indirect pointer xrefs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re,struct,json,pefile
+          board=Path('board/modules/LinuxLoader.efi')
+          retail=next(p for p in Path('retail').rglob('*.efi') if hashlib.sha256(p.read_bytes()).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087')
+          signals=('oem ','flashing ','getvar','flash:','erase:','reboot','set_active','download:','boot','update:','continue','fetch:','partitions','unlock','lock ','factory','token','rdlock','permission','get_unlock_ability','signature','keymaster')
+          results={}
+          for version,path in [('BOARD',board),('EEA',retail)]:
+             b=path.read_bytes();pe=pefile.PE(data=b,fast_load=True)
+             image_base=int(pe.OPTIONAL_HEADER.ImageBase)
+             strings=[]
+             for m in re.finditer(rb'[ -~]{4,120}\x00',b):
+                text=m.group()[:-1].decode('ascii','replace').strip()
+                if not text or not any(t in text.lower() for t in signals):continue
+                if len(text)>90:continue
+                try:addr=pe.get_rva_from_offset(m.start())+image_base
+                except:continue
+                # Search exact pointers in PE blob. Some strings are xreferenced via adrp + add
+                ptr=struct.pack('<Q',addr)
+                ptr_hits=[i.start() for i in re.finditer(re.escape(ptr),b)]
+                strings.append({'text':text,'file_off':hex(m.start()),'rva':hex(addr),
+                    'ptr_offsets':[hex(x) for x in ptr_hits[:16]]})
+             results[version]={'sha256':hashlib.sha256(b).hexdigest(),'size':len(b),
+                               'strings':strings}
+             print(version,'STRING_MATCHES',len(strings))
+          lists={key:{item['text'] for item in results[key]['strings']} for key in ('BOARD','EEA')}
+          only={key:sorted(lists[key]-lists[other]) for key,other in [('BOARD','EEA'),('EEA','BOARD')]}
+          for key,items in only.items():
+            print('ONLY_IN',key,'COUNT',len(items))
+            for item in items[:100]:print('  ',item)
+          print('COMMON',len(lists['BOARD']&lists['EEA']))
+          for key in ('BOARD','EEA'):
+            print('FACTORY_COMMAND_POINTERS',key)
+            for item in results[key]['strings']:
+              if item['ptr_offsets'] and any(t in item['text'].lower() for t in ('oem ','flashing ','getvar','unlock','lock')):
+                print(item)
+          result={'versions':results,'only_in':only,'common_count':len(lists['BOARD']&lists['EEA'])}
+          Path('report/FASTBOOT_BOARD_RETAIL_COMMAND_REGISTRY.json').write_text(json.dumps(result,indent=2,ensure_ascii=False)+'\n')
+          PY
+      - name: Save proof of command discrepancies
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_RETAIL_FASTBOOT_COMMAND_REGISTRY
+          path: report/
+          retention-days: 14
