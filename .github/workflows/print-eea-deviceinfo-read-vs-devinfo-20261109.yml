@@ -1,0 +1,32 @@
+name: HONOR70 Read Exact DeviceInfo State Before Any EDL Patch
+on:
+  push:
+    paths:
+      - '.github/workflows/print-eea-deviceinfo-read-vs-devinfo-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download original signed ABL Ghidra artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src
+          gh run download 42631189678 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src
+      - name: Print exact state structure source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          t=next(Path('src').rglob('HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt')).read_text(errors='replace')
+          c=re.split(r'(?=^=============== TARGET 0x)',t,flags=re.M)
+          for key in ('433a8','43688','37ac0'):
+            b=next((x for x in c if x.startswith('=============== TARGET 0x'+key+' ')),None)
+            print('\n===== FUNCTION '+key+' =====')
+            print((b[b.find('DECOMP '):][:15500] if b else 'MISSING'))
+          PY
