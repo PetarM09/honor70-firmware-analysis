@@ -1,0 +1,69 @@
+name: Honor70 Signed Board Firehose Capability Forensic Audit
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-board-firehose-capabilities.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Download intact signed Board Firehose candidates and GPT config
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src inspect
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir src
+          unzip -p src/selected_bootchain.zip bootloaderimage/prog_firehose_ddr.elf > prog_firehose_ddr.elf
+          unzip -p src/selected_bootchain.zip bootloaderimage/prog_firehose_lite.elf > prog_firehose_lite.elf
+          file prog_firehose_*.elf
+          readelf -h prog_firehose_ddr.elf | head -30
+      - name: Compare signed programming capabilities without connecting to EDL
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re,json,struct
+          patterns={
+            "commands":[b'<read',b'<program',b'<erase',b'<configure',b'<getstorageinfo',b'<peek',b'<poke',
+              b'<setbootablestoragedrive',b'<power',b'<nop',b'<getsha256digest',b'<getstorageinfo',b'<ufs'],
+            "policies":[b'authenticated',b'auth',b'security',b'verify',b'firehose',b'ddr',b'lite',
+              b'writeprotect',b'write protect',b'rpmb',b'keymaster',b'rollback',b'antirollback',b'fuse',
+              b'secureboot',b'perm_write',b'PROGRAM',b'ERASE',b'READ',b'token',b'signature'],
+            "model":[b'SM7325',b'lahaina',b'ufs',b'FNE-NX9',b'FNE-AN00',b'Honor',b'VERIFY',b'sahara'],
+          }
+          report={}
+          for filename in ('prog_firehose_ddr.elf','prog_firehose_lite.elf'):
+            raw=Path(filename).read_bytes()
+            textparts=re.findall(rb'(?=[ -~]*[A-Za-z])[ -~]{5,240}',raw)
+            strings=[x.decode('ascii','replace') for x in textparts]
+            entries={"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),"elf":raw[:4]==b'\x7fELF',
+                  "linked_strings":len(strings),"keyword_refs":{},"possible_commands":[]}
+            for category,needles in patterns.items():
+              for needle in needles:
+                findings=[s for s in strings if needle.decode('ascii','replace').lower() in s.lower()]
+                if findings:
+                   entries["keyword_refs"][needle.decode()]=findings[:8]
+            for s in strings:
+              if any(k in s.lower() for k in ('rawprogram','skipwrite','skipstorage','memoryname',
+                'alwaysvalidate','readbackverify','zlpaware','maxpayloadsizetotarget','verify')) and len(s)<180:
+                entries["possible_commands"].append(s)
+            entries["possible_commands"]=entries["possible_commands"][:75]
+            report[filename]=entries
+            print('\n###',filename,'BYTES',len(raw),'SHA256',entries['sha256'])
+            for k,v in entries['keyword_refs'].items():
+              print('STRING_PROBE',k,json.dumps(v,ensure_ascii=False)[:700])
+            print('INTERESTING_COUNT',len(entries['possible_commands']))
+            print('INTERESTING_SAMPLES',entries['possible_commands'][:25])
+          Path('inspect/FIREHOSE_OFFLINE_AUDIT.json').write_text(json.dumps(report,indent=2)+'\n')
+          print('\nNOTE: Strings do not prove device acceptance, supported access rights, or authorization.')
+          PY
+      - name: Save complete research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_FIREHOSE_OFFLINE_POLICY
+          path: inspect/
+          retention-days: 14
