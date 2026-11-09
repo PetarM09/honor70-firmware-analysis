@@ -1,0 +1,78 @@
+name: Honor70 Compare Firehose DDR Lite Code vs Signed Metadata
+on:
+  push:
+    paths:
+      - '.github/workflows/board-firehose-code-versus-signature.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download signed Board programmers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p inputs analysis
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir inputs
+          unzip -p inputs/selected_bootchain.zip bootloaderimage/prog_firehose_ddr.elf > inputs/ddr.elf
+          unzip -p inputs/selected_bootchain.zip bootloaderimage/prog_firehose_lite.elf > inputs/lite.elf
+          python3 -m pip install --quiet --break-system-packages pyelftools cryptography
+      - name: Separate programmer functional code from certificate bytes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          from cryptography import x509
+          import hashlib,json,difflib,re
+          names=['ddr','lite'];source={n:Path('inputs/'+n+'.elf').read_bytes() for n in names}
+          report={}
+          for name in names:
+            b=source[name]
+            with Path('inputs/'+name+'.elf').open('rb') as fd:
+              e=ELFFile(fd)
+              headers=[]
+              for ix,s in enumerate(e.iter_segments()):
+                off=int(s['p_offset']);size=int(s['p_filesz']);body=b[off:off+size]
+                headers.append({'index':ix,'p_type':str(s['p_type']),'p_flags':hex(int(s['p_flags'])),'offset':off,
+                  'filesize':size,'memsize':int(s['p_memsz']),'vaddr':hex(int(s['p_vaddr'])),'sha256':hashlib.sha256(body).hexdigest()})
+            certs=[]
+            for i in range(len(b)-6):
+              if b[i:i+2]!=b'\x30\x82':continue
+              n=int.from_bytes(b[i+2:i+4],'big')+4
+              if n<350 or n>8000 or i+n>len(b):continue
+              try:
+                 c=x509.load_der_x509_certificate(b[i:i+n])
+                 certs.append({'offset':hex(i),'size':n,'subject':c.subject.rfc4514_string(),
+                   'issuer':c.issuer.rfc4514_string()})
+              except (ValueError,TypeError,OverflowError):pass
+            report[name]={'sha256':hashlib.sha256(b).hexdigest(),'file_size':len(b),'segments':headers,'certs':certs}
+            print('PROGRAMMER',name,'SIZE',len(b),'SHA256',report[name]['sha256'])
+            for seg in headers:print('SEG',name,json.dumps(seg))
+          a=source['ddr'];b=source['lite']
+          assert len(a)==len(b)
+          sections=[]
+          active=False;start=0
+          for off in range(len(a)):
+            diff=a[off]!=b[off]
+            if diff and not active: start=off;active=True
+            if active and (not diff or off==len(a)-1):
+              end=off if not diff else off+1
+              sections.append((start,end))
+              active=False
+          report['comparison']={'total_different_bytes':sum(end-start for start,end in sections),
+            'number_of_diff_runs':len(sections),'diff_run_sample':[{'start':hex(start),'end':hex(end),'size':end-start} for start,end in sections[:60]]}
+          print('TOTAL_DIFFERENT_BYTES',report['comparison']['total_different_bytes'])
+          print('DIFF_RUN_COUNT',len(sections))
+          print('DIFF_EXCERPTS',report['comparison']['diff_run_sample'][:30])
+          Path('analysis/FIREHOSE_DDR_LITE_CODE_DIFF.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Preserve verified segment comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_DDR_LITE_FIREHOSE_CODE_DIFF
+          path: analysis/
+          retention-days: 14
