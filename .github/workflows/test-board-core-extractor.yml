@@ -1,0 +1,58 @@
+name: Honor70 Validate Board Core Extractor
+on:
+  push:
+    paths:
+      - 'tools/extract_board_core.py'
+      - '.github/workflows/test-board-core-extractor.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build synthetic Board archive
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root="Honor_70_FNE-AN00_1.0.0.34_220721_HMT/Firmware"
+          with zipfile.ZipFile('/tmp/sample-hmt.zip','w') as z:
+            for name,blob in {
+              'bootloaderimage/abl.elf':b'FAKE_A_B_L',
+              'bootloaderimage/xbl.elf':b'FAKE_X_B_L',
+              'bootloaderimage/km41.mbn':b'FAKE_KEYMASTER',
+              'bootloaderimage/prog_firehose_ddr.elf':b'FAKE_FIREHOSE',
+              'bootloaderimage/gpt_main0.bin':b'FAKE_GPT',
+              'fastbootimage/gpt_both0.bin':b'FAKE_GPT_BOTH',
+              'FNE-AN00-BD_1.0.0.34_Download.xml':b'<download>TEST</download>',
+              'fastbootimage/oeminfo.mbn':b'DO_NOT_INCLUDE_PERSONAL_OR_FACTORY_OEMINFO',
+              'fastbootimage/frp.img':b'DO_NOT_INCLUDE_FRP',
+              'fastbootimage/userdata.img':b'DO_NOT_INCLUDE_USERDATA',
+            }.items():
+              z.writestr(root+'/'+name,blob)
+          PY
+      - name: Run extractor, verify excluded partitions and SHA
+        run: |
+          python3 -m py_compile tools/extract_board_core.py
+          python3 tools/extract_board_core.py /tmp/sample-hmt.zip --out /tmp/HONOR70_BOARD_CORE_FOR_ANALYSIS.zip
+          python3 - <<'PY'
+          import hashlib,json,zipfile
+          with zipfile.ZipFile('/tmp/HONOR70_BOARD_CORE_FOR_ANALYSIS.zip') as z:
+            names=set(z.namelist())
+            assert "bootloaderimage/abl.elf" in names
+            assert "bootloaderimage/xbl.elf" in names
+            assert "bootloaderimage/km41.mbn" in names
+            assert "bootloaderimage/prog_firehose_ddr.elf" in names
+            assert "bootloaderimage/gpt_main0.bin" in names
+            assert "fastbootimage/gpt_both0.bin" in names
+            assert "FNE-AN00-BD_1.0.0.34_Download.xml" in names
+            assert not any("oeminfo" in n.lower() or "frp.img" in n.lower() or "userdata" in n.lower() for n in names)
+            meta=json.loads(z.read("BOARD_CORE_MANIFEST.json"))
+            assert meta["safe_to_flash"] is False
+            for e in meta["entries"]:
+              assert hashlib.sha256(z.read(e["path"])).hexdigest()==e["sha256"]
+            print("TEST_PASS",len(names),"files extracted, unwanted partitions excluded, SHA256 manifest verified")
+          PY
