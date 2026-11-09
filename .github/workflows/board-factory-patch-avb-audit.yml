@@ -1,0 +1,80 @@
+name: Honor70 Audit Board Factory Scripts, AVB Patch, Signatures
+on:
+  push:
+    paths:
+      - '.github/workflows/board-factory-patch-avb-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download already verified Board bootchain and factory scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source board report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir source
+          unzip -q source/selected_bootchain.zip -d board
+          python3 -m pip install --quiet --break-system-packages pefile pyelftools cryptography
+      - name: Analyze factory operations as text only and identify AVB patch payload type
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re,math,struct,json,zipfile
+          base=Path('board')
+          report={'factory_files':{},'patch_avb':{},'board_firehose_elf':{}}
+          for p in sorted(base.rglob('*')):
+              if not p.is_file() or p.suffix.lower() not in ('.xml','.bat'):
+                  continue
+              data=p.read_bytes()
+              text=data.decode('utf8','replace')
+              lines=text.splitlines()
+              markers=('unlock','lock','fastboot','firehose','oeminfo','devinfo','frp','patch_avb',
+                       'persist','userdata','flash','erase','prog_firehose','physical_partition_number','rollback')
+              matches=[{'line':i+1,'text':s[:280]} for i,s in enumerate(lines)
+                       if any(token in s.lower() for token in markers)]
+              report['factory_files'][str(p)]={'size':len(data),'sha256':hashlib.sha256(data).hexdigest(),
+                 'total_lines':len(lines),'matching_lines':matches[:170],
+                 'contains_unlock_verb':bool(re.search(r'\bunlock\b',text,re.I))}
+              print('FACTORY',p,'LINES',len(lines),'MATCHES',len(matches),'UNLOCK',report['factory_files'][str(p)]['contains_unlock_verb'])
+          p=base/'fastbootimage/patch_avb.img'
+          data=p.read_bytes()
+          strs=[s.decode('ascii','replace') for s in re.findall(rb'[ -~]{7,160}',data)
+                if any(t in s.lower() for t in (b'verified',b'rollback',b'verity',b'boot',b'android',b'avb',b'honor',b'patch'))]
+          magic=data[:64].hex()
+          count4k=(len(data)+4095)//4096
+          report['patch_avb']={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'first_64_bytes_hex':magic,
+             'avb0_header':data[:4]==b'AVB0',
+             'android_boot_header':data[:8]==b'ANDROID!',
+             'android_sparse_magic':data[:4]==bytes.fromhex('3aff26ed'),
+             'elf_magic':data[:4]==b'\x7fELF',
+             'zip_magic':data[:2]==b'PK',
+             'interesting_strings':strs[:100],
+             'first_4k_sha256':hashlib.sha256(data[:4096]).hexdigest()}
+          from elftools.elf.elffile import ELFFile
+          for name in ('prog_firehose_ddr.elf','prog_firehose_lite.elf','abl.elf'):
+              f=base/'bootloaderimage'/name
+              with f.open('rb') as stream:
+                  elf=ELFFile(stream)
+                  segs=[{'type':str(x['p_type']),'offset':int(x['p_offset']),
+                         'filesz':int(x['p_filesz']),'flags':int(x['p_flags'])} for x in elf.iter_segments()]
+                  report['board_firehose_elf'][name]={'sha256':hashlib.sha256(f.read_bytes()).hexdigest(),
+                      'machine':str(elf['e_machine']),'entry':hex(int(elf['e_entry'])),'segments':segs}
+          Path('report/BOARD_FLASH_SCRIPT_AVB_PATCH_FORENSICS.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n')
+          print('PATCH_AVB',json.dumps(report['patch_avb'])[:3000])
+          for name,d in report['factory_files'].items():
+            if name.endswith('.bat') or 'Download.xml' in name:
+              print('FACTORY_SCRIPT',name,'LINES_HIGHLIGHTS')
+              for item in d['matching_lines'][:45]:
+                print(item['line'],item['text'][:220])
+          PY
+      - name: Publish text-based firmware forensics
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_FACTORY_PATCH_AVB_ANALYSIS
+          path: report/
+          retention-days: 14
