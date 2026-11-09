@@ -66,7 +66,7 @@ jobs:
                 lines.append(neighborhood(k,4,5))
           lines.append('TOTAL_FIELD_0x104_OPS '+str(n))
           lines.append('\n=== VERIFIED COMMAND GATE RAW INSTRUCTIONS ===')
-          for lo,hi in [(0x134c0,0x13548),(0x13608,0x13620),(0x22c7c,0x22f7c)]:
+          for lo,hi in [(0x12d40,0x12f24),(0x13008,0x130b8),(0x134c0,0x13548),(0x13608,0x136c0),(0x176d8,0x17750),(0x22c7c,0x22f7c)]:
             lines.append(f'RANGE {lo:#x}..{hi:#x}')
             lines.extend(fmt(i) for i in instructions if lo<=i.address<hi)
           report='\n'.join(lines)+'\n'
