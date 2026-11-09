@@ -17,7 +17,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p inputs report dist
+          mkdir -p inputs report analysis dist
           gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir inputs
           unzip -q inputs/selected_bootchain.zip bootloaderimage/km41.mbn -d inputs
           echo 'b548a4a0cfd3b21d08164600593881e5a1b57bdc960ab0a3437309bc92ba5f78  inputs/bootloaderimage/km41.mbn' | sha256sum --check
@@ -44,14 +44,14 @@ jobs:
                tail -130 report/BOARD_KEYMASTER_GHIDRA_LOG.txt
                exit 1
             }
-          test -s report/KM41_MILESTONE_SECURITY_MAP.txt
-          test -s report/KM41_COMMAND_TABLE_AND_MILESTONE.txt
+          test -s analysis/KM41_MILESTONE_SECURITY_MAP.txt
+          test -s analysis/KM41_COMMAND_TABLE_AND_MILESTONE.txt
           python3 - <<'PY'
           from pathlib import Path
           import re
           out=[]
           for name in ['KM41_MILESTONE_SECURITY_MAP.txt','KM41_COMMAND_TABLE_AND_MILESTONE.txt']:
-            s=Path('report')/name
+            s=Path('analysis')/name
             d=s.read_text(errors='replace')
             out.append('===== '+name+' =====')
             out.append('SIZE '+str(len(d)))
@@ -66,5 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HONOR70_BOARD_KEYMASTER_MILESTONE_GHIDRA
-          path: report/
+          path: |
+            analysis/
+            report/
           retention-days: 14
