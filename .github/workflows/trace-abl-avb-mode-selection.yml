@@ -1,0 +1,73 @@
+name: Honor70 Trace AVB Mode Selection in Stock ABL
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-abl-avb-mode-selection.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve exact stock LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p orig report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir orig
+          python3 -m pip install --quiet --break-system-packages pefile capstone
+      - name: Search Is_VERIFIED_BOOT_2 and GPT vbmeta selection call-sites
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          import pefile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from capstone.arm64 import ARM64_OP_REG,ARM64_OP_IMM
+          p=next(Path('orig').glob('*.efi'));b=p.read_bytes()
+          assert hashlib.sha256(b).hexdigest()=='ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087'
+          pe=pefile.PE(data=b,fast_load=True);base=pe.OPTIONAL_HEADER.ImageBase
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+          code=[]
+          for sec in pe.sections:
+              if sec.Characteristics & 0x20000000:code.extend(md.disasm(sec.get_data(),base+sec.VirtualAddress))
+          needles=['Is_VERIFIED_BOOT_2','IsVerifiedBoot','NO_AVB','NO AVB','vbmeta_a','vbmeta_b','vbmeta','verified boot','VerifiedBoot','MILESTONE','milestone','keymaster','get_unlock_ability','DeviceInfo','Qseecom','AVB']
+          lines=['BINARY_SHA256 '+hashlib.sha256(b).hexdigest(),'INSTRUCTION_COUNT '+str(len(code))]
+          for needle in needles:
+            raw=needle.encode()
+            hits=list(re.finditer(re.escape(raw),b,re.I))
+            lines.append('\n===== STRING '+needle+' HITS '+str(len(hits))+' =====')
+            for match in hits[:20]:
+              off=match.start()
+              try:va=pe.get_rva_from_offset(off)+base
+              except:continue
+              lines.append('STRING_FILE '+hex(off)+' VA '+hex(va)+' bytes='+repr(b[max(0,off-30):min(len(b),off+100)]))
+              xrefs=[]
+              for i,inst in enumerate(code):
+                if inst.mnemonic=='adr' and len(inst.operands)>1 and inst.operands[1].type==ARM64_OP_IMM and inst.operands[1].imm==va:
+                  xrefs.append(i)
+                if inst.mnemonic!='adrp' or len(inst.operands)<2 or inst.operands[1].type!=ARM64_OP_IMM:continue
+                if (inst.operands[1].imm>>12)!=(va>>12):continue
+                reg=inst.operands[0].reg
+                for j in range(i+1,min(i+9,len(code))):
+                  q=code[j]
+                  if q.address-inst.address>32:break
+                  if q.mnemonic=='add' and len(q.operands)>=3 and q.operands[0].type==ARM64_OP_REG and q.operands[1].type==ARM64_OP_REG and q.operands[2].type==ARM64_OP_IMM and q.operands[1].reg==reg and inst.operands[1].imm+q.operands[2].imm==va:
+                    xrefs.append(i);break
+              lines.append('XREF_COUNT '+str(len(xrefs)))
+              for i in xrefs[:8]:
+                lines.append('REFERENCE '+hex(code[i].address))
+                lines+=[' '+hex(x.address)+' '+x.mnemonic+' '+x.op_str for x in code[max(0,i-10):min(len(code),i+24)]]
+          Path('report/HONOR70_ABL_AVB_SELECTION_XREF.txt').write_text('\n'.join(lines)+'\n')
+          for ln in lines:
+            if ln.startswith(('BINARY','INSTRUCTION','===== STRING','STRING_FILE','XREF_COUNT','REFERENCE')):print(ln[:550])
+          PY
+      - name: Save original stock ABL xrefs
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_AVB_MODE_XREFS
+          path: report/
+          retention-days: 14
