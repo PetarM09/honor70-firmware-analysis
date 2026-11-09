@@ -26,7 +26,7 @@ jobs:
           from pathlib import Path
           import zipfile, hashlib, json, re,collections
           root=Path('incoming')
-          manifest=json.loads((root/'HONOR70_BOARD_HMT_SHA256_manifest.json').read_text())
+          manifest=json.loads((root/'HONOR70_BOARD_HMT_SHA256_manifest.json').read_text(encoding='utf-8-sig'))
           assert manifest['format']=='consecutive-byte-split-v1'
           reconstructed=Path('output/original_board.zip')
           total=0
