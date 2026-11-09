@@ -1,0 +1,62 @@
+name: Honor70 Compare Shared Board and Retail Unlock Decision Trees
+on:
+  push:
+    paths:
+      - '.github/workflows/compare-shared-unlock-state-20261109.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download verified Ghidra reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p in/board in/retail out
+          gh run download 42604503921 --repo "$GITHUB_REPOSITORY" --name HONOR70_BOARD_LINUXLOADER_GHIDRA_UNLOCK --dir in/board
+          gh run download 42533269683 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir in/retail
+      - name: Resolve shared handlers and permission predicates without assumptions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,json,difflib
+          board=next(Path('in/board').rglob('BOARD_ABL_UNLOCK_DECOMPILATION.txt')).read_text(errors='replace')
+          eea=next(Path('in/retail').rglob('GHIDRA_ABL_DECOMPILATION.txt')).read_text(errors='replace')
+          targets={'BOARD':['00025f14','00023b84','00023b9c','00023b08','00021454','0003fb98','00034800'],
+                   'EEA':['00027850','00025c04','00025b88','00023fd0','00043688','00037ac0']}
+          inputs={'BOARD':board,'EEA':eea}
+          report={}
+          for label,addresses in targets.items():
+            chunks=re.split(r'(?=^========== TARGET )',inputs[label],flags=re.M)
+            report[label]={}
+            for address in addresses:
+              matches=[x for x in chunks if x.lower().startswith('========== target '+address)]
+              if not matches:
+                report[label][address]={'found':False}
+                continue
+              body=matches[0]
+              out=Path('out')/(label+'_'+address+'.txt')
+              out.write_text(body)
+              report[label][address]={'found':True,'characters':len(body),
+                 'mentions_allow':len(re.findall(r'allowunlock|permission|not allowed',body,re.I)),
+                 'mentions_device_state':len(re.findall(r'VBRwDevice|Set device|Unlocking device|device state',body,re.I)),
+                 'mentions_wipe':len(re.findall(r'wipe|recovery|userdata|erase',body,re.I)),
+                 'relevant_code_lines':[s.strip() for s in body.splitlines() if any(p in s for p in (
+                   'Flashing Unlock is not allowed','Set device','VBRwDevice','unlock','Unlock','recovery','wipe','DAT_001c','FUN_00025f14','FUN_00027850'))][:40]}
+              print('SECTION',label,address,'CHARACTERS',len(body),'FOUND',True)
+              if address in ('00025f14','00027850'):
+                print('EXACT_HANDLER',label,body[:19000])
+              else:
+                print('NOTABLE_LINES',str(report[label][address]['relevant_code_lines'])[:3000])
+          Path('out/COMPARISON.json').write_text(json.dumps(report,indent=2))
+          PY
+      - name: Save exact validated Ghidra source segments
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_SHARED_BOARD_EEA_UNLOCK_POLICY_PATHS
+          path: out/
+          retention-days: 14
