@@ -15,7 +15,7 @@ public class Honor70OEMInfoFastbootStateProvenance extends GhidraScript {
     long[] targets={
       0x12cf8L, 0x12e90L, 0x13008L, 0x13054L, 0x134c0L, 0x13684L,
       0x136a4L, 0x13d58L, 0x1a7b0L, 0x1bf74L, 0x15690L,
-      0x23fd0L, 0x240c8L, 0x27850L, 0x37ac0L, 0x43688L
+      0x23fd0L, 0x240c8L, 0x27850L, 0x37ac0L, 0x433a8L, 0x43688L
     };
     DecompInterface dec=new DecompInterface();
     dec.toggleCCode(true); dec.setSimplificationStyle("decompile");
