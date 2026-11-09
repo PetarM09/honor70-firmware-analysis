@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      - name: Check out repository analysis scripts
+        uses: actions/checkout@v4
       - name: Fetch firmware release parts
         env:
           GH_TOKEN: ${{ github.token }}
