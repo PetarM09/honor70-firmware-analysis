@@ -1,0 +1,78 @@
+name: Honor70 Assess Board Firehose Signature and Secure Boot Eligibility
+on:
+  push:
+    paths:
+      - '.github/workflows/board-firehose-signing-chain.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  assess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Retrieve signed engineering Board Firehose and stock reference certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p src/board src/eea board report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir src/board
+          gh run download 42527019027 --repo "$GITHUB_REPOSITORY" --name HONOR70_DEEP_BOOTCHAIN --dir src/eea
+          unzip -q src/board/selected_bootchain.zip bootloaderimage/prog_firehose_ddr.elf bootloaderimage/prog_firehose_lite.elf bootloaderimage/abl.elf bootloaderimage/xbl.elf -d board
+          python3 -m pip install --quiet --break-system-packages pyelftools cryptography
+      - name: Fingerprint programmer X509 certificate trust and Qualcomm ELF hash segments
+        run: |
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          from cryptography import x509
+          from cryptography.hazmat.primitives import serialization
+          from elftools.elf.elffile import ELFFile
+          def sha(b):return hashlib.sha256(b).hexdigest()
+          paths={'Board Firehose DDR':'board/bootloaderimage/prog_firehose_ddr.elf',
+            'Board Firehose lite':'board/bootloaderimage/prog_firehose_lite.elf',
+            'Board ABL':'board/bootloaderimage/abl.elf',
+            'Board XBL':'board/bootloaderimage/xbl.elf',
+            'EEA ABL':'src/eea/keybins/abl.elf',
+            'EEA XBL':'src/eea/keybins/xbl.elf'}
+          data=[]
+          for title,name in paths.items():
+            p=Path(name);b=p.read_bytes()
+            certs={}
+            for i in range(len(b)-6):
+              if b[i:i+2]!=b'\x30\x82':continue
+              n=int.from_bytes(b[i+2:i+4],'big')+4
+              if n<350 or n>7000 or i+n>len(b):continue
+              try:
+                c=x509.load_der_x509_certificate(b[i:i+n])
+                subject=c.subject.rfc4514_string()
+                if not subject:continue
+                pub=c.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
+                certs[sha(pub)]={'cert_offset':hex(i),'subject':subject,'issuer':c.issuer.rfc4514_string(),'key_sha256':sha(pub)}
+              except (ValueError,TypeError,OverflowError):continue
+            with p.open('rb') as f:
+              el=ELFFile(f)
+              segs=[{'i':i,'type':str(s['p_type']),'file_off':hex(int(s['p_offset'])),
+                'file_size':int(s['p_filesz']),'flags':hex(int(s['p_flags'])),
+                'vaddr':hex(int(s['p_vaddr']))}
+                for i,s in enumerate(el.iter_segments())]
+            rec={'title':title,'filename':name,'sha256':sha(b),'size_bytes':len(b),
+              'elf_machine':str(el['e_machine']),'entry_point':hex(int(el['e_entry'])),
+              'program_headers':segs,'certificate_public_keys':list(certs.values())}
+            data.append(rec)
+            print('BINARY',title,'SIZE',len(b),'CERT_COUNT',len(certs),'ENTRY',rec['entry_point'])
+            for c in certs.values():print('CERT',c['key_sha256'],c['subject'])
+            for seg in segs[:35]:print('ELF_SEG',seg)
+          keys=lambda t:{v['key_sha256'] for rec in data if rec['title']==t for v in rec['certificate_public_keys']}
+          for s in ('Board Firehose DDR','Board Firehose lite'):
+            for t in ('Board ABL','Board XBL','EEA ABL','EEA XBL'):
+              print('TRUST_OVERLAP',s,'versus',t,'shared',len(keys(s)&keys(t)),'total_programmer_keys',len(keys(s)))
+          Path('report/EDL_PROGRAMMER_SIGNATURE_IDENTITY.json').write_text(json.dumps(data,indent=2)+'\n')
+          PY
+      - name: Save code-free read-only EDL signing analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_BOARD_FIREHOSE_SIGNATURE_EVIDENCE
+          path: report/
+          retention-days: 14
