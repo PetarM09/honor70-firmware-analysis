@@ -120,6 +120,19 @@ def main():
     mode_helper_assembly = [
         f"{ins.address:#x} {ins.mnemonic} {ins.op_str}" for ins in mode_listing
     ]
+    mode_map = {i.address: i for i in mode_listing}
+    for addr, name, operand in (
+        (0x3134, "mov", "w0, #2"),
+        (0x3138, "ret", ""),
+        (0x313c, "mov", "w0, #1"),
+        (0x3140, "ret", ""),
+    ):
+        ins = mode_map.get(addr)
+        if ins is None or ins.mnemonic != name or (operand and ins.op_str != operand):
+            raise ValueError(f"Mode helper code changed at {addr:#x}: {ins}")
+    # FUN_0000313C() is 1 and FUN_00003134() is 2 on this stock build.
+    # The decompiled 0x38370 shortcut 'if (!FUN_313C() || FUN_3134()==3)'
+    # cannot be satisfied by these fixed return values.
     source_excerpt = {}
     for addr, entry in decomp.items():
         if not entry["found"]:
@@ -156,10 +169,16 @@ def main():
         "ghidra_function_evidence": source_excerpt,
         "verified_ghidra_source_constraints": required_c,
         "mode_helpers_original_arm64_window_0x3110_0x3144": mode_helper_assembly,
+        "stock_mode_helper_values": {
+            "FUN_0000313c": 1,
+            "FUN_00003134": 2,
+            "FUN_00038370_internal_mode_shortcut_possible_on_this_stock_build": False,
+            "verified_boot_protocol_reset_method_attempted_after_locate": True
+        },
         "interpretation_guardrails": [
             "The equal-state compare is against an ABL +0x104 context helper, not a direct Keymaster READ.",
             "Either the local equal-state branch OR a successful VBRwDevice WRITE can reach the same recovery stage.",
-            "A successful return from 0x38370 can occur on an internal mode short circuit without invoking the reset protocol method.",
+            "The internal mode shortcut is unreachable in this exact retail build because 0x313C always returns 1 and 0x3134 always returns 2; 0x38370 must attempt the VerifiedBoot protocol method if invoked.",
             "The recovery BCB command is staged only after that helper returns zero and other operations succeed.",
             "Rollback code may attempt the opposite state if 0x38370 returns failure; it is not evidence this happened live.",
             "Neither wipe nor Fastboot OKAY proves persistent secure unlock."
