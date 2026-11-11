@@ -23,6 +23,9 @@ jobs:
           mkdir -p km report
           gh run download 43121558199 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_DELETE_ALL_KEYS_CALLBACK_GHIDRA --dir km
           test -s km/KM41_DELETE_ALL_KEYS_CALLBACK_TABLE.txt
+          mkdir -p km/helpers
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_WRITE_FUSE_GUARD --dir km/helpers
+          test -s km/helpers/KM41_WRITE_MILESTONE_DECOMPILE.txt
       - name: Extract exact command router and classify 0x10E table registration
         run: |
           python3 - <<'PY'
@@ -44,6 +47,24 @@ jobs:
               (Path('report')/('KM41_ROUTER_'+key+'.txt')).write_text(block)
               print('ROUTER_BODY',key,'bytes',len(block))
               print(block[:25000])
+          PY
+      - name: Print true command-table count and base address helpers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('km/helpers/KM41_WRITE_MILESTONE_DECOMPILE.txt').read_text(errors='replace')
+          for k in ['12366c','123674','10e128','10e144']:
+              token='===== TARGET '+k+' ====='
+              a=d.find(token)
+              if a<0:
+                  print('HELPER_MISSING',k)
+                  continue
+              b=d.find('===== TARGET ',a+len(token))
+              section=d[a:b if b>=0 else None]
+              (Path('report')/('KM41_HELPER_'+k+'.txt')).write_text(section)
+              print('HELPER_BODY',k,'bytes',len(section))
+              print(section[:12000])
           PY
       - uses: actions/upload-artifact@v4
         with:
