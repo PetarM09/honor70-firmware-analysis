@@ -1,0 +1,55 @@
+name: HONOR70 Correlate ABL UI Callback and Keymaster READ Guard
+
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_callback_keymaster_read.py'
+      - '.github/workflows/audit-abl-callback-km-read-20261111.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out read-only audit
+        uses: actions/checkout@v4
+      - name: Fetch existing source-verified original EEA ABL and Keymaster reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/abl inputs/km inputs/verified report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir inputs/abl
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_WRITE_FUSE_GUARD --dir inputs/km
+          find inputs/abl -type f -name '*.efi' -print0 | while IFS= read -r -d '' file; do
+            if [ "$(sha256sum "$file" | awk '{print $1}')" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$file" inputs/verified/LinuxLoader.efi
+            fi
+          done
+          test -s inputs/verified/LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  inputs/verified/LinuxLoader.efi' | sha256sum --check
+          test -s inputs/km/KM41_WRITE_MILESTONE_DECOMPILE.txt
+      - name: Install pinned major Capstone and validate syntax
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6'
+          python3 -m py_compile tools/audit_abl_callback_keymaster_read.py
+      - name: Map UI callback, VerifiedBoot wrapper and KM milestone guard
+        run: |
+          set -euo pipefail
+          python3 tools/audit_abl_callback_keymaster_read.py \
+            --abl inputs/verified/LinuxLoader.efi \
+            --km-ghidra inputs/km/KM41_WRITE_MILESTONE_DECOMPILE.txt \
+            --output report/ABL_UI_KM_READ_BEFORE_WRITE.json
+          python3 -m json.tool report/ABL_UI_KM_READ_BEFORE_WRITE.json >/dev/null
+      - name: Publish no raw images or personal partition data
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_UI_KEYMASTER_READ_GUARD_STATIC_AUDIT
+          path: report/*.json
+          retention-days: 14
