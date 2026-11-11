@@ -99,7 +99,7 @@ This is a **verified alternative code path** that can explain how wipe and no un
 
 ## Next genuinely useful offline question
 
-The mode helpers are now **resolved to constants** (1 and 2). The next question is which concrete `VerifiedBootDxe` implementation is behind protocol method `+0x30`, whether it resets a persistent lock record or a different verified-boot state, and how that interacts with ABL's OEMINFO-derived `+0x104` local check. Distinguishing the **live** path still requires genuine historical logs or non-destructive, authorized device-state evidence. There is no justified EDL write target or verified permanent unlock yet.
+The mode helpers are **resolved to constants** (1 and 2), and the previously unknown protocol slot **`+0x30` is now resolved**: the original XBL function `0x1C84` sends Keymaster **`DELETE_ALL_KEYS (0x10E)`**, independent of state write `0x203`. See the [reproducible XBL/Keymaster crosscheck](2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md). The next open question is whether ABL's OEMINFO-derived local state `+0x104` was equal to the unlock request on this specific handset, leading it to skip a new secure state write. Distinguishing the **live** path still requires genuine historical logs or non-destructive, authorized device-state evidence. There is no justified EDL write target or verified permanent unlock yet.
 
 No EDL/fastboot/ADB call or device flash took place in these GitHub analyses. Do not attempt to force the equality condition, reset helper, RPMB, SCM bit, or OEMINFO record by writing phone partitions.
 
@@ -112,6 +112,6 @@ The string/name-based search found exactly **one** relevant function with matchi
 
 **Do not treat this as proof that the protocol reset method is absent**; a method can be present without a readable label or log string. Moreover, `FUN_0000153C` is already identified as the `VBRwDevice` read/write method, and must **not** be assigned to protocol slot `+0x30` on this evidence.
 
-To resolve this, trace the provider's registered protocol function-pointer table in the original signed `VerifiedBootDxe` PE image and verify the entry at offset `+0x30`. This is still offline static work, **not** a reason to test or modify live secure state.
+**Resolved in the later full-PE analysis:** the GUID and vtable are used together in the registration call, and provider slot `+0x30` points to RVA `0x1C84`. This sends QSEE Keymaster `DELETE_ALL_KEYS (0x10E)`, rather than `WRITE_KM_DEVICE_STATE (0x203)`. See [source-verified crosscheck](2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md). This is still offline static work, **not** a reason to test or modify live secure state.
 
 **Consolidated position:** the ABL **write-skipping equality branch is proven**, and the stock mode helpers force the separate VerifiedBoot reset protocol path rather than the generic mode shortcut. Whether the phone previously followed that skip-write branch, whether the secure reset method succeeded, and why the persistent state remained LOCKED are still unknown.
