@@ -83,6 +83,64 @@ def scan_candidates(raw, base, size_image, exec_ranges, known_functions):
     return sorted(matches,key=lambda x:(-x["score"],x["file_offset"]))
 
 
+def code_audit(pe, binary, reset_rva, table_rva, guid_rva):
+    """Disassemble the target and locate direct ADRP+ADD/LDR references.
+
+    The output is a byte-derived static trace, not proof the code executed.
+    """
+    from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+    from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_REG, ARM64_OP_MEM
+    dis = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+    dis.detail = True
+    source = pe.get_data(reset_rva, 0x200)
+    instructions = list(dis.disasm(source, reset_rva))
+    if len(instructions) < 4:
+        raise ValueError("Reset slot points to an undecodable region")
+    reset_lines = [f"{inst.address:#x} {inst.mnemonic} {inst.op_str}"
+                   for inst in instructions[:120]]
+    targets = {"vtable": table_rva, "protocol_guid": guid_rva}
+    refs = []
+    for sec in pe.sections:
+        if not (int(sec.Characteristics) & 0x20000000):
+            continue
+        start = int(sec.VirtualAddress)
+        code = pe.get_data(start, int(sec.Misc_VirtualSize))
+        decoded = list(dis.disasm(code, start))
+        for i, op in enumerate(decoded):
+            if op.mnemonic != "adrp" or len(op.operands)<2:
+                continue
+            if op.operands[0].type != ARM64_OP_REG or op.operands[1].type != ARM64_OP_IMM:
+                continue
+            reg = op.operands[0].reg
+            for name, target in targets.items():
+                if op.operands[1].imm != (target & ~0xfff):
+                    continue
+                for next_ins in decoded[i+1:i+14]:
+                    if next_ins.address-op.address>52:
+                        break
+                    ops=next_ins.operands
+                    hit=False
+                    if (next_ins.mnemonic=="add" and len(ops)>=3 and
+                            ops[1].type==ARM64_OP_REG and ops[1].reg==reg and
+                            ops[2].type==ARM64_OP_IMM and ops[2].imm==(target & 0xfff)):
+                        hit=True
+                    if (next_ins.mnemonic.startswith("ldr") and len(ops)>=2 and
+                            ops[1].type==ARM64_OP_MEM and
+                            ops[1].mem.base==reg and ops[1].mem.disp==(target & 0xfff)):
+                        hit=True
+                    if hit:
+                        context=decoded[max(0,i-3):min(len(decoded),i+16)]
+                        refs.append({"kind":name,"adrp_at":hex(op.address),
+                                     "source_at":hex(next_ins.address),
+                                     "target_rva":hex(target),
+                                     "context":[f"{k.address:#x} {k.mnemonic} {k.op_str}"
+                                                for k in context]})
+    return {"reset_target_disassembly":reset_lines,
+            "direct_adrp_reference_count":len(refs),
+            "direct_adrp_references":refs[:30],
+            "nearest_ghidra_function_not_required":True}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--pe",type=Path)
@@ -140,6 +198,12 @@ def main():
     reset_rva=(int(reliable[0]["slots"][6]["target_rva"],16)
                if exactly_one else None)
     reset_func=known.get(reset_rva) if reset_rva is not None else None
+    table_rva=(pe.get_rva_from_offset(reliable[0]["file_offset"])
+               if exactly_one else None)
+    guid_rva=(pe.get_rva_from_offset(guid_offsets[0]) if guid_offsets else None)
+    byte_derived_code=(code_audit(pe,b,reset_rva,table_rva,guid_rva)
+                       if reset_rva is not None and table_rva is not None and
+                       guid_rva is not None else None)
     result={
         "scope":"Original verified stock EEA VerifiedBootDxe PE, static only",
         "verified_pe_sha256":sha(b),
@@ -158,6 +222,7 @@ def main():
         "reset_slot_0x30_rva_if_unique":hex(reset_rva) if reset_rva is not None else None,
         "reset_slot_0x30_decompiled_function_if_exact":reset_func["header"] if reset_func else None,
         "reset_slot_0x30_decompiled_body_if_exact":reset_func["body"] if reset_func else None,
+        "original_arm64_reset_function_and_provider_table_xrefs":byte_derived_code,
         "limitations":[
             "A plausible contiguous array is not sufficient to prove InstallProtocolInterface used it.",
             "To prove registration, inspect code references to this table and the protocol GUID.",
@@ -182,6 +247,15 @@ def main():
         print("RESET_0x30_CANDIDATE_START")
         print(reset_func["body"][:10000])
         print("RESET_0x30_CANDIDATE_END")
+    if byte_derived_code:
+        print("RESET_TARGET_RVA",hex(reset_rva),
+              "TABLE_RVA",hex(table_rva),"GUID_RVA",hex(guid_rva))
+        for line in byte_derived_code["reset_target_disassembly"][:85]:
+            print("RESET_ARM64",line)
+        print("DIRECT_DATA_XREFS",byte_derived_code["direct_adrp_reference_count"])
+        for ref in byte_derived_code["direct_adrp_references"][:18]:
+            print("DATA_XREF",ref["kind"],ref["source_at"],
+                  "CONTEXT",json.dumps(ref["context"][:20]))
     if not exactly_one:
         print("NOT_PROVEN: PE pointer array not uniquely resolved; dynamic Ghidra xrefs required")
 
