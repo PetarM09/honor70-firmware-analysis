@@ -1,0 +1,52 @@
+name: HONOR70 Inspect Standard Keymaster 0x10E Dispatcher
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-km41-standard-command-router-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Get original signed Keymaster Ghidra dispatcher report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p km report
+          gh run download 43121558199 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_DELETE_ALL_KEYS_CALLBACK_GHIDRA --dir km
+          test -s km/KM41_DELETE_ALL_KEYS_CALLBACK_TABLE.txt
+      - name: Extract exact command router and classify 0x10E table registration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d=Path('km/KM41_DELETE_ALL_KEYS_CALLBACK_TABLE.txt').read_text(errors='replace')
+          heads=re.findall(r'(?m)^TABLE_ENTRY .*$',d)
+          print('ALL_TABLE_ENTRIES',len(heads))
+          print('TABLE_0x10E_DIRECT',sum('cmd=0x10e ' in h for h in heads))
+          for h in heads:print('TABLE_ENTRY',h)
+          for key in ['0010945c','00109628','0010d7c8','0011b174']:
+              marker='====== DECOMPILE SUPPORT TARGET '+key+' ======'
+              i=d.find(marker)
+              if i<0:
+                  print('MISSING',key)
+                  continue
+              j=d.find('====== DECOMPILE ',i+len(marker))
+              block=d[i:j if j>=0 else None]
+              (Path('report')/('KM41_ROUTER_'+key+'.txt')).write_text(block)
+              print('ROUTER_BODY',key,'bytes',len(block))
+              print(block[:25000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_0x10E_STANDARD_COMMAND_ROUTER
+          path: report/
+          retention-days: 14
