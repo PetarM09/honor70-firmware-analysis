@@ -1,0 +1,39 @@
+name: HONOR70 Index Original XBL VTable Cross References
+
+on:
+  push:
+    paths:
+      - 'tools/audit_xbl_vtable_text_xrefs.py'
+      - '.github/workflows/audit-xbl-vtable-text-xrefs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download original decompiler output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p originals report
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir originals
+          x="$(find originals -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' -print -quit)"
+          test -n "$x"
+          cp "$x" originals/stock_xbl_ghidra.txt
+      - name: Verify decompiler references and index protocol pointer candidates
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_xbl_vtable_text_xrefs.py
+          python3 tools/audit_xbl_vtable_text_xrefs.py --ghidra originals/stock_xbl_ghidra.txt --out report/XBL_VTABLE_TEXT_REFS.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ORIGINAL_XBL_VTABLE_TEXT_REFS
+          path: report/*.json
+          retention-days: 14
