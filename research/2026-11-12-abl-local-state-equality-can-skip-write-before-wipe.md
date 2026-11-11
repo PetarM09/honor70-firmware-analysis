@@ -102,3 +102,16 @@ This is a **verified alternative code path** that can explain how wipe and no un
 The mode helpers are now **resolved to constants** (1 and 2). The next question is which concrete `VerifiedBootDxe` implementation is behind protocol method `+0x30`, whether it resets a persistent lock record or a different verified-boot state, and how that interacts with ABL's OEMINFO-derived `+0x104` local check. Distinguishing the **live** path still requires genuine historical logs or non-destructive, authorized device-state evidence. There is no justified EDL write target or verified permanent unlock yet.
 
 No EDL/fastboot/ADB call or device flash took place in these GitHub analyses. Do not attempt to force the equality condition, reset helper, RPMB, SCM bit, or OEMINFO record by writing phone partitions.
+
+
+## Follow-up: XBL reset-provider name-only inventory — a justified negative result
+
+[Successful XBL 164-function Ghidra scan, run 43119045596](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43119045596) uses [`tools/audit_verifiedboot_reset_provider.py`](../tools/audit_verifiedboot_reset_provider.py) to search the previously archived EEA `VerifiedBootDxe` decompilation (report SHA256 `a00112cdc87e8dbe6a6605a597dd62eefcde84a8d7f443160712d55b745e6ef7`).
+
+The string/name-based search found exactly **one** relevant function with matching device-state wording: known `FUN_0000153C` (`RWDeviceState`). It found **no distinct, self-identifying ResetDeviceState implementation** by strings alone.
+
+**Do not treat this as proof that the protocol reset method is absent**; a method can be present without a readable label or log string. Moreover, `FUN_0000153C` is already identified as the `VBRwDevice` read/write method, and must **not** be assigned to protocol slot `+0x30` on this evidence.
+
+To resolve this, trace the provider's registered protocol function-pointer table in the original signed `VerifiedBootDxe` PE image and verify the entry at offset `+0x30`. This is still offline static work, **not** a reason to test or modify live secure state.
+
+**Consolidated position:** the ABL **write-skipping equality branch is proven**, and the stock mode helpers force the separate VerifiedBoot reset protocol path rather than the generic mode shortcut. Whether the phone previously followed that skip-write branch, whether the secure reset method succeeded, and why the persistent state remained LOCKED are still unknown.
