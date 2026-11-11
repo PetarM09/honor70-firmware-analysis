@@ -1,0 +1,58 @@
+name: HONOR70 ABL Equal-State Shortcut vs Recovery Wipe Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_equal_state_wipe.py'
+      - '.github/workflows/audit-abl-equal-state-wipe-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Retrieve original ABL and Ghidra decompiler report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source/abl source/ghidra source/verified report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir source/abl
+          gh run download 42534601904 --repo "$GITHUB_REPOSITORY" --name HONOR70_GHIDRA_UNLOCK_DECOMPILATION --dir source/ghidra
+          find source/abl -type f -name '*.efi' -print0 | while IFS= read -r -d '' candidate; do
+            if [ "$(sha256sum "$candidate" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$candidate" source/verified/LinuxLoader.efi
+            fi
+          done
+          test -s source/verified/LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  source/verified/LinuxLoader.efi' | sha256sum --check
+          f="$(find source/ghidra -type f -name 'GHIDRA_ABL_DECOMPILATION.txt' -print -quit)"
+          test -n "$f"
+          cp "$f" source/verified/GHIDRA_ABL_DECOMPILATION.txt
+          test -s source/verified/GHIDRA_ABL_DECOMPILATION.txt
+      - name: Install offline PE and ARM64 tools
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6' 'pefile>=2024.8,<2027'
+          python3 -m py_compile tools/audit_abl_equal_state_wipe.py
+      - name: Verify both skip-write branches and conditional recovery command
+        run: |
+          set -euo pipefail
+          python3 tools/audit_abl_equal_state_wipe.py \
+            --abl source/verified/LinuxLoader.efi \
+            --ghidra source/verified/GHIDRA_ABL_DECOMPILATION.txt \
+            --out report/ABL_EQUAL_STATE_VS_RECOVERY_WIPE.json
+          python3 -m json.tool report/ABL_EQUAL_STATE_VS_RECOVERY_WIPE.json >/dev/null
+      - name: Upload metadata-only result
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_EQUAL_STATE_AND_RECOVERY_STATIC_AUDIT
+          path: report/*.json
+          retention-days: 14
