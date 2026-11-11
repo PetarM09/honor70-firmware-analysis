@@ -1,0 +1,46 @@
+name: HONOR70 Verify XBL Delete-All-Keys vs Device-State-Write
+
+on:
+  push:
+    paths:
+      - 'tools/audit_km_reset_delete_all_keys.py'
+      - '.github/workflows/audit-km-reset-delete-all-keys-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download original XBL PE disassembly and Keymaster Ghidra command table
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/xbl src/km report
+          gh run download 43120424282 --repo "$GITHUB_REPOSITORY" --name HONOR70_XBL_PROTOCOL_TABLE_POINTERS_VERIFIED --dir src/xbl
+          gh run download 42539726689 --repo "$GITHUB_REPOSITORY" --name HONOR70_KEYMASTER_MILESTONE_GHIDRA --dir src/km
+          test -s src/xbl/XBL_VERIFIEDBOOT_PROTOCOL_TABLE_0x08_0x30.json
+          f="$(find src/km -type f -name 'KM41_MILESTONE_SECURITY_MAP.txt' -print -quit)"
+          test -n "$f"
+          cp "$f" src/km/verified_keymaster_ghidra.txt
+      - name: Independently cross-verify 0x10e equals DELETE_ALL_KEYS, not state write
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_km_reset_delete_all_keys.py
+          python3 tools/audit_km_reset_delete_all_keys.py \
+            --xbl-json src/xbl/XBL_VERIFIEDBOOT_PROTOCOL_TABLE_0x08_0x30.json \
+            --km-ghidra src/km/verified_keymaster_ghidra.txt \
+            --out report/XBL_RESET_KM_DELETE_ALL_KEYS_INDEPENDENT_CROSSCHECK.json
+          python3 -m json.tool report/XBL_RESET_KM_DELETE_ALL_KEYS_INDEPENDENT_CROSSCHECK.json >/dev/null
+      - name: Upload only verified metadata and findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_XBL_KEYMASTER_DELETE_KEYS_VS_UNLOCK_AUDIT
+          path: report/*.json
+          retention-days: 14
