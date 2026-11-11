@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - '.github/workflows/audit-original-xbl-pe-protocol-table-20261112.yml'
+      - 'tools/audit_verifiedboot_pe_protocol_table.py'
   workflow_dispatch:
 
 permissions:
@@ -159,6 +160,7 @@ jobs:
       - name: Run source-verified PE table pointer analysis
         run: |
           set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6'
           python3 -m py_compile tools/audit_verifiedboot_pe_protocol_table.py
           python3 tools/audit_verifiedboot_pe_protocol_table.py --selftest
           python3 tools/audit_verifiedboot_pe_protocol_table.py \
