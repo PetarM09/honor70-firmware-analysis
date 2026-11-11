@@ -87,6 +87,32 @@ def main():
     if not all(decomp[a]["found"] for a in ("00043688", "00013008", "00038370")):
         raise ValueError("Missing Ghidra decompilation of essential setter/helper functions")
 
+    # Ghidra pseudocode constraints complement the byte-level branch assertions.
+    # Ghidra sometimes mislabels the return type of 0x13008, hence tests focus
+    # on the data-source expression, not its guessed signature.
+    setter_c = decomp["00043688"]["body"]
+    state_c = decomp["00013008"]["body"]
+    reset_c = decomp["00038370"]["body"]
+    required_c = {
+        "ABL state getter uses initialized context field +0x104":
+            "*(int *)(lVar2 + 0x104) == 1" in state_c,
+        "state setter short-circuits when local state equals requested":
+            setter_c.count("if ((cVar6 == param_2) ||") == 2,
+        "state setter joins the reset call and recovery command":
+            "lVar9 = FUN_00038370();" in setter_c and
+            "lVar9 = FUN_000380e0(" in setter_c,
+        "reset helper has a mode-based zero-result short circuit":
+            "iVar3 == 3" in reset_c and "lVar6 = 0;" in reset_c,
+        "reset helper can call verified-boot protocol offset 0x30":
+            "+ 0x30))()" in reset_c,
+        "setter may attempt reverse state write after reset error":
+            "bVar5 = param_2 ==" in setter_c and
+            "FUN_00037ac0(1,&DAT_001e1b18,0xa18)" in setter_c,
+    }
+    if not all(required_c.values()):
+        raise ValueError("Ghidra source assertion failed: " +
+                         repr([name for name, ok in required_c.items() if not ok]))
+
     source_excerpt = {}
     for addr, entry in decomp.items():
         if not entry["found"]:
@@ -121,6 +147,15 @@ def main():
             for addr, (_, _, desc) in INSTRUCTION_ASSERTIONS.items()
         ],
         "ghidra_function_evidence": source_excerpt,
+        "verified_ghidra_source_constraints": required_c,
+        "interpretation_guardrails": [
+            "The equal-state compare is against an ABL +0x104 context helper, not a direct Keymaster READ.",
+            "Either the local equal-state branch OR a successful VBRwDevice WRITE can reach the same recovery stage.",
+            "A successful return from 0x38370 can occur on an internal mode short circuit without invoking the reset protocol method.",
+            "The recovery BCB command is staged only after that helper returns zero and other operations succeed.",
+            "Rollback code may attempt the opposite state if 0x38370 returns failure; it is not evidence this happened live.",
+            "Neither wipe nor Fastboot OKAY proves persistent secure unlock."
+        ],
         "limitations": [
             "Equal-state skip occurs on one specific branch, not proof the user's device took it.",
             "0x13008 is an ABL helper; do not equate it with an observed secure RPMB value.",
