@@ -99,6 +99,36 @@ The independently [successful nested-function run 43122556310](https://github.co
 
 **Important:** we have not proven the runtime value returned by `FUN_0011AA6C`, the precise data/keys modified by `FUN_0011AB10`, or any erase result on the owner's handset. `0x10E` is conclusively dispatched to its **own actual registered handler**, not to the `0x203` state writer.
 
+## Final storage-level implementation audit
+
+[Run 43123051015 — all assertions passed](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43123051015) checks the *actual* original signed Keymaster Ghidra output with [`tools/audit_km41_delete_all_keys_storage_semantics.py`](../tools/audit_km41_delete_all_keys_storage_semantics.py), using exact callback addresses, command IDs, protected-storage calls, and cache-clearing conditions.
+
+The internal `DELETE_ALL_KEYS` path is now mapped to the following source logic:
+
+```text
+KM41 0x10E -> handler 0x107C48
+    -> storage helper 0x1184D4
+         if (DAT_001391D0 & 1) == 0:
+             return success (no storage zeroing branch)
+         otherwise:
+             allocate & clear 0x3000-byte RAM buffer
+             call sector write helper 0x11AB10(...)
+                 -> qsee_stor_write_sectors(...)
+    -> on success: 0x1177A0 clears 16 internal cache/context entries
+```
+
+Verified stock constants and effects:
+
+- `FUN_0011AA6C()` returns an **internal state byte `DAT_001391D0`**, not the live value of a fuse.
+- `FUN_0011AA78()` returns **512 bytes per logical protected-storage sector**.
+- In the enabled branch, `FUN_0011AB10` converts the fixed byte offset to 16 logical sectors and requests zeroing of **24 sectors × 512 bytes = 12,288 bytes**, using the Keymaster's `qsee_stor_write_sectors` handle. These are **internal protected-storage coordinates**, not EDL LUN/GPT offsets.
+- `FUN_001177A0` clears up to **16 internal cache entries** and `FUN_001174BC` conditionally calls `qsee_free`.
+- **None of the six directly decompiled functions in this chain calls `FUN_00117980` or `qsee_is_sw_fuse_blown` directly**, unlike protected device-state `0x202`/`0x203`. This does not exclude policy checks behind other helpers or the transport.
+
+**Critical conclusion:** The built-in secure deletion operation and the protected bootloader-lock state writer are not only distinct commands, but have **different source-level storage and authorization paths**. Therefore even a successful key-deletion/recovery-wipe stage is **not evidence that the unlock state was written or persisted**.
+
+The actual enable flag, protected-storage content, SCM security state and the user's original runtime callback branch remain unknown. We have made **zero** live storage writes or EDL calls in these GitHub analyses.
+
 ## Implication for the original failed unlock attempt
 
 The now-proven stock ABL `0x43688` has two ways to reach the shared reset/wipe path:
