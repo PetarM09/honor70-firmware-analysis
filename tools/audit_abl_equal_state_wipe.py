@@ -140,6 +140,13 @@ def main():
     print("RECOVERY_CMD", repr(extracted))
     for key, info in source_excerpt.items():
         print("GHIDRA_FUNCTION", key, json.dumps(info, ensure_ascii=False)[:11000])
+    # Full control-flow context: the common helper decides whether the
+    # BCB recovery command construction branch is reached.
+    for addr in ("00013008", "00038370", "00043688"):
+        body = decomp[addr]["body"]
+        print("GHIDRA_FULL_BEGIN", addr)
+        print(body)
+        print("GHIDRA_FULL_END", addr)
 
 
 if __name__ == "__main__":
