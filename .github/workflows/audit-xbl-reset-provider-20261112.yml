@@ -1,0 +1,45 @@
+name: HONOR70 XBL VerifiedBoot Reset Provider Offline Index
+
+on:
+  push:
+    paths:
+      - 'tools/audit_verifiedboot_reset_provider.py'
+      - '.github/workflows/audit-xbl-reset-provider-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout read-only source tool
+        uses: actions/checkout@v4
+      - name: Download archived original XBL Ghidra evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir src
+          f="$(find src -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' -print -quit)"
+          test -n "$f"
+          cp "$f" src/verified_xbl_ghidra.txt
+          test -s src/verified_xbl_ghidra.txt
+      - name: Triage possible reset-state providers by exact decompiled strings
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_verifiedboot_reset_provider.py
+          python3 tools/audit_verifiedboot_reset_provider.py \
+            --ghidra src/verified_xbl_ghidra.txt \
+            --out report/XBL_RESET_PROVIDER_CANDIDATE_INDEX.json
+          python3 -m json.tool report/XBL_RESET_PROVIDER_CANDIDATE_INDEX.json >/dev/null
+      - name: Publish metadata-only report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_XBL_RESET_PROVIDER_CANDIDATES_STATIC
+          path: report/*.json
+          retention-days: 14
