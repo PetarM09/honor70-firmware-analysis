@@ -33,7 +33,10 @@ jobs:
           done
           test -s source/verified/LinuxLoader.efi
           echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  source/verified/LinuxLoader.efi' | sha256sum --check
-          test -s source/xbl/VERIFIEDBOOT_DXE_GHIDRA.txt
+          xbl_report="$(find source/xbl -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' -print -quit)"
+          test -n "$xbl_report"
+          cp "$xbl_report" source/verified/VERIFIEDBOOT_DXE_GHIDRA.txt
+          test -s source/verified/VERIFIEDBOOT_DXE_GHIDRA.txt
       - name: Install analysis dependencies and compile
         run: |
           set -euo pipefail
@@ -44,7 +47,7 @@ jobs:
           set -euo pipefail
           python3 tools/audit_abl_unlock_error_provenance.py \
             --abl source/verified/LinuxLoader.efi \
-            --xbl-ghidra source/xbl/VERIFIEDBOOT_DXE_GHIDRA.txt \
+            --xbl-ghidra source/verified/VERIFIEDBOOT_DXE_GHIDRA.txt \
             --out report/ABL_UI_XBL_ERROR_PROVENANCE.json
           python3 -m json.tool report/ABL_UI_XBL_ERROR_PROVENANCE.json > /dev/null
       - name: Publish metadata-only artifact
