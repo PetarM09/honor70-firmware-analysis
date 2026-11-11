@@ -20,7 +20,7 @@ def sha(raw):
 
 
 def assert_regexp(pattern, text, desc):
-    if not re.search(pattern, text, re.S | re.I):
+    if not re.search(pattern, text, re.S | re.I | re.M):
         raise ValueError("Original firmware evidence absent: " + desc)
 
 
