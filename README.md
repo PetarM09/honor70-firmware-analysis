@@ -16,7 +16,8 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
-| [ABL UI callback and two protected reads](research/2026-11-11-abl-ui-two-reads-keymaster-fuse-15.md) | The UI callback performs a VBRwDevice READ before calling the state setter. On the secure path, the VBRwDevice WRITE performs another Keymaster `0x202` before `0x203`. A `-15` status does not distinguish blown fuse from failed fuse check. |
+| [ABL local-state equality shortcut, reset and wipe (new)](research/2026-11-12-abl-local-state-equality-can-skip-write-before-wipe.md) | The setter can skip a new VBRwDevice WRITE if its local `+0x104` state getter already equals the requested value; **both skip and successful write converge before a separate VerifiedBoot reset and conditional recovery wipe**. Reset-mode helpers are hardcoded 1 and 2 in the stock EEA ABL. |
+| [ABL UI callback and conditional two protected reads](research/2026-11-11-abl-ui-two-reads-keymaster-fuse-15.md) | The UI callback READ precedes the state setter. **If** the setter issues a secure-backed VBRwDevice WRITE, it must first issue another Keymaster `0x202` before `0x203`; the local-state equality branch may skip this whole second sequence. `-15` does not distinguish blown fuse from failed fuse check. |
 | [Secure storage masks](research/2026-11-11-secure-state-read-before-write-scm-mask-0x20.md) | `0x8703` and `0x8723` differ by `0x20`; firmware conditional classes are documented, not measured on the phone. |
 | [Featenabler Board vs EEA](research/2026-11-11-featenabler-nonload-diff-831-bytes.md) | Five loadable ELF segments identical; 831 differing outer-file bytes reside in a non-loaded region including a distinct Qualcomm leaf certificate / public key. |
 | [Exact locked Fastboot allowlist](research/2026-11-09-live-fastboot-denied-allowlist-root-cause.md) | “Command not allowed” for `flashing get_unlock_ability` is pre-handler dispatch rejection, not a Keymaster error. |
@@ -26,6 +27,8 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Verified ABL equality shortcut, retail mode helper constants and conditional wipe](../../actions/runs/43118668948)
+- [Exact ABL UI/XBL READ / preread / WRITE error strings](../../actions/runs/43117415577)
 - [ABL callback ↔ Keymaster `0x202` fuse / `-15` provenance](../../actions/runs/43116216616)
 - [VBRwDevice read-before-write and SCM selector](../../actions/runs/43114969428)
 - [Featenabler certificate and public-key comparison](../../actions/runs/43113403744)
@@ -42,4 +45,4 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Outstanding question
 
-During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the device reach the initial VBRwDevice READ, the protected pre-write READ `0x202`, or the write `0x203`? The existing Fastboot-only log does not answer this. Further offline analysis can map firmware error reporting, but must not label a live failure branch without corresponding evidence.
+During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. The next offline target is the VerifiedBoot reset method behind protocol offset `+0x30`.
