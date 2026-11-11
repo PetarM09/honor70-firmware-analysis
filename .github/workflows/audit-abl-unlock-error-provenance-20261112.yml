@@ -1,0 +1,55 @@
+name: HONOR70 Correlate ABL UI Error Strings and XBL Statuses
+
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_unlock_error_provenance.py'
+      - '.github/workflows/audit-abl-unlock-error-provenance-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out read-only offline analyzer
+        uses: actions/checkout@v4
+      - name: Download original EEA ABL and XBL Ghidra report (existing artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source/abl source/xbl source/verified report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir source/abl
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir source/xbl
+          find source/abl -type f -name '*.efi' -print0 | while IFS= read -r -d '' candidate; do
+            if [ "$(sha256sum "$candidate" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$candidate" source/verified/LinuxLoader.efi
+            fi
+          done
+          test -s source/verified/LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  source/verified/LinuxLoader.efi' | sha256sum --check
+          test -s source/xbl/VERIFIEDBOOT_DXE_GHIDRA.txt
+      - name: Install analysis dependencies and compile
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6' 'pefile>=2024.8,<2027'
+          python3 -m py_compile tools/audit_abl_unlock_error_provenance.py
+      - name: Correlate EFI callback and XBL failure diagnostics
+        run: |
+          set -euo pipefail
+          python3 tools/audit_abl_unlock_error_provenance.py \
+            --abl source/verified/LinuxLoader.efi \
+            --xbl-ghidra source/xbl/VERIFIEDBOOT_DXE_GHIDRA.txt \
+            --out report/ABL_UI_XBL_ERROR_PROVENANCE.json
+          python3 -m json.tool report/ABL_UI_XBL_ERROR_PROVENANCE.json > /dev/null
+      - name: Publish metadata-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_UI_XBL_ERROR_PROVENANCE
+          path: report/*.json
+          retention-days: 14
