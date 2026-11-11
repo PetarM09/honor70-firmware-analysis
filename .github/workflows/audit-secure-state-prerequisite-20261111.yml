@@ -1,0 +1,46 @@
+name: HONOR70 Audit Secure-State READ Prerequisite and SCM Fallback
+
+on:
+  push:
+    paths:
+      - 'tools/audit_secure_state_write_prerequisite.py'
+      - '.github/workflows/audit-secure-state-prerequisite-20261111.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout read-only static analysis
+        uses: actions/checkout@v4
+      - name: Verify Python syntax and mask model selftest
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_secure_state_write_prerequisite.py
+          python3 tools/audit_secure_state_write_prerequisite.py --selftest
+      - name: Retrieve original VerifiedBootDxe Ghidra evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence report
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir evidence
+          test "$(find evidence -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' | wc -l)" -eq 1
+      - name: Assert firmware conditions and build classified state table
+        run: |
+          set -euo pipefail
+          python3 tools/audit_secure_state_write_prerequisite.py \
+            --report "$(find evidence -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' -print -quit)" \
+            --output report/LOCK_STATE_READ_BEFORE_WRITE_AND_SCM_MASKS.json
+          python3 -m json.tool report/LOCK_STATE_READ_BEFORE_WRITE_AND_SCM_MASKS.json >/dev/null
+      - name: Upload metadata-only analysis report
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_LOCK_STATE_READ_PREREQUISITE_AND_SCM_MASKS
+          path: report/*.json
+          retention-days: 14
