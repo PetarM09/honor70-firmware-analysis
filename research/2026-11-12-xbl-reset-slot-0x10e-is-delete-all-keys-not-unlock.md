@@ -58,6 +58,47 @@ Therefore the **VerifiedBoot provider's method +0x30 is a Keymaster DELETE_ALL_K
 
 **Important limitation:** the command's original label is verified. We have not dynamically executed the request or reconstructed every internal storage side effect of the corresponding trustlet handler, so do not claim which exact cryptographic keys or RPMB records it erases.
 
+## New: verified handler implementation (exact 67-entry Keymaster dispatch table)
+
+The **original signed stock Keymaster** has a fixed command table at memory address **`0x138580`**, verified by decompiling two helper functions:
+
+- `FUN_0012366c()` returns **`0x43` (67)** entries.
+- `FUN_00123674()` returns **`&DAT_00138580`**.
+- The dispatcher `FUN_00109628` iterates **16-byte records** `[uint32 command, uint32 flags, uint64 callback]`.
+
+The [successful original-table Ghidra run 43122129713](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43122129713) records:
+
+| Row | ID | Flags | Original EEA callback |
+|---:|---:|---:|---|
+| 5 | `0x210E` | `0x100` | **`0x107C48`** |
+| 6 | **`0x010E`** | `0x100` | **`0x107C48`** |
+| 18 | `0x0202` | `0x100` | `0x1185A8` (READ device state) |
+| 19 | `0x0203` | `0x100` | `0x118878` (WRITE device state) |
+
+An earlier heuristic table scan missed `0x10E` because it relied on a previously discovered function or a consecutive neighboring command ID. **The full fixed-size table scan supersedes that incomplete negative scan**.
+
+After creating the previously unrecognized Ghidra function at `0x107C48`, the decompiler returns:
+
+```c
+int KM_DELETE_ALL_KEYS_HANDLER(void) {
+    int status = func_0x001184d4();
+    if (status == 0) {
+        FUN_001177a0();
+    } else {
+        qsee_log(8, "%s:%u:%d",
+                 "operation_delete_all_handler", 0x13a, status);
+    }
+    return status;
+}
+```
+
+The independently [successful nested-function run 43122556310](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43122556310) decompiled both callees:
+
+- **`0x1184D4`** checks `FUN_0011AA6C() & 1`. If the bit is **zero**, the routine returns zero immediately without entering its buffer/storage branch. Otherwise, it allocates/zeros a `0x3000`-byte buffer, calls a helper chain including `FUN_0011AB10(..., buffer, 0x3000)`, and reports `km_delete_all_keys` on failure.
+- **`0x1177A0`** iterates 16 internal cache/context slots, clearing fields and invoking a cleanup function conditionally.
+
+**Important:** we have not proven the runtime value returned by `FUN_0011AA6C`, the precise data/keys modified by `FUN_0011AB10`, or any erase result on the owner's handset. `0x10E` is conclusively dispatched to its **own actual registered handler**, not to the `0x203` state writer.
+
 ## Implication for the original failed unlock attempt
 
 The now-proven stock ABL `0x43688` has two ways to reach the shared reset/wipe path:
