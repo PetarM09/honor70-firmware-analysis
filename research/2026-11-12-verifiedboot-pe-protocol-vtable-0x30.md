@@ -27,8 +27,14 @@ The array begins **184 bytes after** the known VerifiedBoot GUID in the file. AB
 
 **Confidence:** very strong identification of a candidate contiguous protocol-method table; final registration proof still requires code xrefs connecting the GUID and table to `InstallProtocolInterface`, not only proximity. A function pointer is a code address **not** an EDL partition offset, a place to write data, or proof that the method executed on the user's phone.
 
-## Next step
+## Resolved by the follow-up original PE + Keymaster crosscheck
 
-Disassemble **RVA `0x1C84`** from the verified original ARM64 PE and correlate it with initialization code references to the vtable RVA `0xD160` and GUID RVA `0xD0A8`. The previous full-file Ghidra text index did not include a function starting at `0x1C84` by name, so disassembling exact instruction bytes is necessary.
+- [Original XBL ARM64 instructions and GUID+vtable UEFI registration, run 43120424282](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43120424282)
+- [Independent original Keymaster command mapping, run 43121032094](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43121032094)
+- [Full durable interpretation](2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md)
 
-No device connection, EDL read/write, Keymaster invocation, RPMB access or security state change was performed. There is still **no confirmed permanent bootloader unlock**.
+**The vtable is registered with the VerifiedBoot GUID.** The exact original ARM64 implementation at **RVA 0x1C84** prepares a 4-byte Keymaster QSEE request **0x10E** and validates the transport and returned result. Original signed `km41.mbn` labels **`0x10E = DELETE_ALL_KEYS`**, whereas `0x203 = WRITE_KM_DEVICE_STATE`.
+
+This makes provider slot **`+0x30` an independent Keymaster key-deletion request, not the protected device-lock-state writer**. It is on the route leading to recovery wipe but does not alone prove the live handset executed it or that any bootloader state was modified.
+
+No phone operation or firmware write was performed in any of these two automated analyses.
