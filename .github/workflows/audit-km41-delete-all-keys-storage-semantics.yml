@@ -1,0 +1,40 @@
+name: HONOR70 Verify Keymaster DELETE_ALL_KEYS Storage Semantics
+
+on:
+  push:
+    paths:
+      - 'tools/audit_km41_delete_all_keys_storage_semantics.py'
+      - '.github/workflows/audit-km41-delete-all-keys-storage-semantics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original SHA-pinned signed Keymaster Ghidra output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh run download 43122761278 --repo "$GITHUB_REPOSITORY" --name HONOR70_KM41_67_ENTRY_0x10E_EXACT_DISPATCH --dir src
+          test -s src/KM41_EXACT_67_STANDARD_COMMANDS_AND_DELETE_ALL_KEYS.txt
+      - name: Assert real 0x10E callback and protected storage zeroing semantics
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_km41_delete_all_keys_storage_semantics.py
+          python3 tools/audit_km41_delete_all_keys_storage_semantics.py \
+            --ghidra src/KM41_EXACT_67_STANDARD_COMMANDS_AND_DELETE_ALL_KEYS.txt \
+            --out report/KM41_DELETE_ALL_KEYS_STORAGE_SEMANTICS.json
+          python3 -m json.tool report/KM41_DELETE_ALL_KEYS_STORAGE_SEMANTICS.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_DELETE_ALL_KEYS_STORAGE_SEMANTICS_VERIFIED
+          path: report/KM41_DELETE_ALL_KEYS_STORAGE_SEMANTICS.json
+          retention-days: 14
