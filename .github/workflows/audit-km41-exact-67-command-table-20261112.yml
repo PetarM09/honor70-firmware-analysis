@@ -65,6 +65,14 @@ jobs:
             print('DELETE_ALL_KEYS_DECOMPILED',d[a:b if b>=0 else a+28000][:28000])
           else:
             print('NO_REGISTERED_0x10E_HANDLER_DECOMP')
+          for addr in ('001184d4','001177a0'):
+            head='KEY_DELETE_INNER_DECOMPILED_BEGIN '+addr
+            tail='KEY_DELETE_INNER_DECOMPILED_END '+addr
+            a=d.find(head)
+            b=d.find(tail,a+len(head))
+            print('INNER_TARGET',addr, 'FULL_REPORT_SECTION',a>=0)
+            if a>=0:
+              print(d[a:b if b>=0 else a+22000][:22000])
           PY
       - name: Save complete read-only reverse engineering result
         uses: actions/upload-artifact@v4
