@@ -44,3 +44,31 @@ The signed Chinese Board and European EEA `featenabler` **do not differ in any E
 Classify the differing non-PT_LOAD region using a dedicated read-only signed-metadata and certificate audit, avoiding any raw `secdata` upload. No further EDL writes are warranted from these data alone.
 
 This finding replaces the earlier weaker claim that only the executable segment was known to be identical.
+
+
+## Certificate audit — independently reproduced on main
+
+**Validated run:** https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43113403744, all steps successful.
+
+The non-PT_LOAD segment includes **six OpenSSL-parseable DER X.509 certificates** in each image, with matching offsets and lengths. Five pairs have identical complete DER SHA-256 and identical public keys. The only differing X.509 certificate is the 620-byte Qualcomm leaf at file offset **4872**, subject `CASS - SBL3`, issued by `QSEE Attestation Root CA 4 SubCA 1`.
+
+- Board leaf DER SHA-256: `6f21cc993ad8348c219aab72f718965eda17aa4f4019e1ae5d3c15120e89e0ce`
+- EEA leaf DER SHA-256: `1fcea8ebc230652a67b06a253230a680529ae17fda7459729ca1b90382d114f8`
+- Board leaf public-key (DER SubjectPublicKeyInfo) SHA-256: `b980f8c0cb958c490e38c5c9be1a2b012f57d0cd05c364898e0e357c4c60dc9f`
+- EEA leaf public-key SHA-256: `95b92df92d00a7e9af7e2a9641b3ed6260ce795881032b6be3163dbdba4c5fa0`
+
+**Distinct public keys and certificate serial numbers are confirmed**, despite equal subject/issuer naming. The Qualcomm intermediate and root certificates and all three HONOR `Qfuse_..._v12` certificates are byte-identical.
+
+Of the 831 changed bytes in the two outer ELF images:
+
+- **228 bytes** lie inside this differing Qualcomm leaf DER certificate.
+- **603 bytes** lie outside any OpenSSL-identified DER certificate but still inside the sole differing non-PT_LOAD program segment.
+- No other identified certificate contains a changed byte.
+
+### Security interpretation (do not overclaim)
+
+The common intermediate/root certs do **not** make distinct Board and EEA leaf signing keys interchangeable on a real locked device. We have not performed Qualcomm secure image signature verification against hardware fuses, checked rollback counters, or confirmed acceptability of a Board image on the EEA phone.
+
+This is further evidence that swapping Board `featenabler` will **not** provide different loadable unlock code; it may introduce signing/authentication incompatibility. No further EDL write is justified.
+
+Tool: [`tools/audit_featenabler_certificates.py`](../tools/audit_featenabler_certificates.py). The Actions artifact contains certificate metadata, SPKI hashes, and region-difference counts, never raw images or per-device partition data.
