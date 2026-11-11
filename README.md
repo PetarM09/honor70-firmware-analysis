@@ -16,7 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
-| [VerifiedBoot reset slot is Keymaster DELETE_ALL_KEYS 0x10E (new)](research/2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md) | Original GUID+vtable registration links ABL `+0x30` to XBL `0x1C84`; that routine sends `DELETE_ALL_KEYS (0x10E)` — **not** `WRITE_KM_DEVICE_STATE (0x203)`. A wipe does not prove the bootloader unlock state changed. |
+| [VerifiedBoot reset slot is Keymaster DELETE_ALL_KEYS 0x10E (verified)](research/2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md) | Original GUID+vtable registration links ABL `+0x30` to XBL `0x1C84`; the XBL sends Keymaster `0x10E` with its **own registered handler `0x107C48`**. An enabled branch requests zeroing of **12 KiB of protected key storage** and clears 16 in-memory cache entries. This is **not** bootloader state WRITE `0x203`; wipe never proves unlock. |
 | [ABL local-state equality shortcut, keys reset and wipe](research/2026-11-12-abl-local-state-equality-can-skip-write-before-wipe.md) | The setter may skip a secure-state WRITE when its context `+0x104` state getter matches the request. Both this shortcut and a successful WRITE converge before the separate Keymaster key-deletion command and conditional recovery wipe. |
 | [ABL UI callback and conditional two protected reads](research/2026-11-11-abl-ui-two-reads-keymaster-fuse-15.md) | The UI callback READ precedes the state setter. **If** the setter issues a secure-backed VBRwDevice WRITE, it must first issue another Keymaster `0x202` before `0x203`; the local-state equality branch may skip this whole second sequence. `-15` does not distinguish blown fuse from failed fuse check. |
 | [Secure storage masks](research/2026-11-11-secure-state-read-before-write-scm-mask-0x20.md) | `0x8703` and `0x8723` differ by `0x20`; firmware conditional classes are documented, not measured on the phone. |
@@ -28,6 +28,8 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Original KM41 0x10E protected-storage zeroing and cache-clear independent assertions](../../actions/runs/43123051015)
+- [Original Keymaster registered command table and nested handler Ghidra decompilation](../../actions/runs/43122761278)
 - [Cross-verified stock XBL +0x30 = QSEE DELETE_ALL_KEYS (0x10E), distinct from unlock WRITE 0x203](../../actions/runs/43121032094)
 - [Original signed XBL PE vtable registration and exact reset-handler ARM64](../../actions/runs/43120424282)
 - [Verified ABL equality shortcut, retail mode helper constants and conditional wipe](../../actions/runs/43118668948)
@@ -49,4 +51,4 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Outstanding question
 
-During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. **The +0x30 function-pointer ambiguity is resolved:** it sends `DELETE_ALL_KEYS (0x10E)`, independently of the `0x202/0x203` device-state pair. The unresolved question is which **live** local-state comparison, SCM backend and protected-write gate were taken on the owner's handset; existing offline images alone cannot establish them.
+During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. **The +0x30 function-pointer ambiguity is resolved:** it sends `DELETE_ALL_KEYS (0x10E)`, independently of the `0x202/0x203` device-state pair. The unresolved question is which **live** local-state comparison, SCM backend and protected-write gate were taken on the owner's handset; existing offline images alone cannot establish them. The next code-level target is ABL `FUN_00012CF8` and the exact relation between its OEMINFO-derived context `+0x104` and the request passed to `FUN_00043688`, **without writing OEMINFO or changing protected state**.
