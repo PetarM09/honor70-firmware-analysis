@@ -74,7 +74,7 @@ public class Honor70KM41StandardCommandTableDecode extends GhidraScript {
       }
       // Independently decompile both real 0x10e callback dependencies.
       // These code addresses are read-only evidence, not entrypoints to invoke.
-      long[] nested={0x1184d4L,0x1177a0L};
+      long[] nested={0x1184d4L,0x1177a0L,0x11aa6cL,0x11aa78L,0x11ab10L,0x1174bcL};
       for(long addr:nested){
         Address site=toAddr(addr);
         Function inner=currentProgram.getFunctionManager().getFunctionAt(site);
