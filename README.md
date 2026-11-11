@@ -28,6 +28,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 ## Latest successfully completed GitHub analyses
 
 - [Verified ABL equality shortcut, retail mode helper constants and conditional wipe](../../actions/runs/43118668948)
+- [XBL reset-provider name-only inventory: no distinct named reset method found](../../actions/runs/43119045596)
 - [Exact ABL UI/XBL READ / preread / WRITE error strings](../../actions/runs/43117415577)
 - [ABL callback ↔ Keymaster `0x202` fuse / `-15` provenance](../../actions/runs/43116216616)
 - [VBRwDevice read-before-write and SCM selector](../../actions/runs/43114969428)
@@ -45,4 +46,4 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Outstanding question
 
-During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. The next offline target is the VerifiedBoot reset method behind protocol offset `+0x30`.
+During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. The next offline target is the **verified provider protocol function-pointer table** behind slot `+0x30`: the archived Ghidra function-name/string scan does not identify it, so it must not be confused with `RWDeviceState (0x153C)`.
