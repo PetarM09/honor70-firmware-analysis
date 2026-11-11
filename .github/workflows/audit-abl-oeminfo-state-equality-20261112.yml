@@ -1,0 +1,51 @@
+name: HONOR70 ABL OEMINFO 0x82 to Unlock Equality Exact Trace
+
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_oeminfo_local_state_to_unlock.py'
+      - '.github/workflows/audit-abl-oeminfo-state-equality-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download source-pinned European ABL and original archived Ghidra
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/abl src/decomp src/verified report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir src/abl
+          gh run download 42628300431 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src/decomp
+          while IFS= read -r -d '' f; do
+            if [ "$(sha256sum "$f" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$f" src/verified/LinuxLoader.efi
+            fi
+          done < <(find src/abl -type f -name '*.efi' -print0)
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  src/verified/LinuxLoader.efi' | sha256sum -c
+          f="$(find src/decomp -type f -name 'HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt' -print -quit)"
+          test -n "$f"
+          cp "$f" src/verified/OEMINFO_STATE_ORIGINAL_GHIDRA.txt
+      - name: Verify original ARM64 instruction points and print linked decompilation
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6'
+          python3 -m py_compile tools/audit_abl_oeminfo_local_state_to_unlock.py
+          python3 tools/audit_abl_oeminfo_local_state_to_unlock.py \
+            --abl src/verified/LinuxLoader.efi \
+            --ghidra src/verified/OEMINFO_STATE_ORIGINAL_GHIDRA.txt \
+            --out report/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json
+          python3 -m json.tool report/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_OEMINFO_LOCALSTATE_AND_WRITE_SHORTCUT
+          path: report/*.json
+          retention-days: 14
