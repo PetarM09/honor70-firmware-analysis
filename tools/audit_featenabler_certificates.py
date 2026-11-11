@@ -48,9 +48,26 @@ def certificates(raw):
         parsed = p.stdout.decode("utf-8", "replace")
         fingerprint = next((v.split("=", 1)[1].strip()
                             for v in parsed.splitlines() if "Fingerprint=" in v), None)
+        pub = subprocess.run(
+            ["openssl", "x509", "-inform", "DER", "-pubkey", "-noout"],
+            input=cert, capture_output=True, timeout=4
+        )
+        spki = subprocess.run(
+            ["openssl", "pkey", "-pubin", "-outform", "DER"],
+            input=pub.stdout, capture_output=True, timeout=4
+        ) if pub.returncode == 0 else None
+        key_digest = sha(spki.stdout) if spki and spki.returncode == 0 else None
+        metadata = subprocess.run(
+            ["openssl", "x509", "-inform", "DER", "-noout", "-serial", "-dates"],
+            input=cert, capture_output=True, timeout=4
+        )
+        metadata_lines = metadata.stdout.decode("utf-8", "replace").splitlines()
         out.append({
             "start": found, "end_exclusive": end, "length": len(cert),
             "der_sha256": sha(cert), "openssl_fingerprint": fingerprint,
+            "subject_public_key_info_sha256": key_digest,
+            "serial": next((x for x in metadata_lines if x.startswith("serial=")), ""),
+            "validity": [x for x in metadata_lines if x.startswith(("notBefore=", "notAfter="))],
             "subject": next((x for x in parsed.splitlines() if x.startswith("subject=")), ""),
             "issuer": next((x for x in parsed.splitlines() if x.startswith("issuer=")), "")
         })
@@ -94,10 +111,21 @@ def main():
             counts["outside_identified_certificates"] += 1
     sig_a = {x["der_sha256"] for x in board_list}
     sig_b = {x["der_sha256"] for x in eea_list}
+    common_positions = {(c["start"], c["length"]): c for c in eea_list}
+    pairings = [
+        {"offset": c["start"], "length": c["length"],
+         "board_cert_sha256": c["der_sha256"],
+         "eea_cert_sha256": common_positions[(c["start"], c["length"])]["der_sha256"],
+         "same_der_certificate": c["der_sha256"] == common_positions[(c["start"], c["length"])]["der_sha256"],
+         "same_public_key": bool(c["subject_public_key_info_sha256"] and
+             c["subject_public_key_info_sha256"] == common_positions[(c["start"], c["length"])]["subject_public_key_info_sha256"])}
+        for c in board_list if (c["start"], c["length"]) in common_positions
+    ]
     report = {
         "scope": "X.509 DER scan in non-PT_LOAD ELF region only; no cryptographic chain validation",
         "board": board_certs, "eea": eea_certs,
         "all_identified_certificates_have_same_hashes": sig_a == sig_b and bool(sig_a),
+        "certificate_pairs_by_file_position": pairings,
         "board_only_cert_sha256": sorted(sig_a - sig_b),
         "eea_only_cert_sha256": sorted(sig_b - sig_a),
         "difference_counts": counts,
@@ -113,10 +141,12 @@ def main():
     print("DER_CERTIFICATES", len(board_list), len(eea_list),
           "SAME_CERT_SHA256_SET", report["all_identified_certificates_have_same_hashes"])
     print("CHANGED_BYTES_BY_CERT_REGION", json.dumps(counts))
+    print("CERTIFICATE_PAIRINGS", json.dumps(pairings))
     for side, certs in (("BOARD", board_list), ("EEA", eea_list)):
         for cert in certs:
             print("CERT", side, cert["start"], cert["length"], cert["der_sha256"],
-                  cert["subject"], cert["issuer"])
+                  cert["subject"], cert["issuer"], "SPKI_SHA256",
+                  cert["subject_public_key_info_sha256"], cert["serial"])
 
 
 if __name__ == "__main__":
