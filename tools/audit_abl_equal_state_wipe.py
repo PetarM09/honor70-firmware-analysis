@@ -113,6 +113,13 @@ def main():
         raise ValueError("Ghidra source assertion failed: " +
                          repr([name for name, ok in required_c.items() if not ok]))
 
+    # These helpers sit immediately before the known 0x3144 ABL main function.
+    # Print exact original instructions rather than inferring their output
+    # from Ghidra's guessed signatures.
+    mode_listing = list(cap.disasm(binary[0x3110:0x3144], 0x3110))
+    mode_helper_assembly = [
+        f"{ins.address:#x} {ins.mnemonic} {ins.op_str}" for ins in mode_listing
+    ]
     source_excerpt = {}
     for addr, entry in decomp.items():
         if not entry["found"]:
@@ -148,6 +155,7 @@ def main():
         ],
         "ghidra_function_evidence": source_excerpt,
         "verified_ghidra_source_constraints": required_c,
+        "mode_helpers_original_arm64_window_0x3110_0x3144": mode_helper_assembly,
         "interpretation_guardrails": [
             "The equal-state compare is against an ABL +0x104 context helper, not a direct Keymaster READ.",
             "Either the local equal-state branch OR a successful VBRwDevice WRITE can reach the same recovery stage.",
@@ -173,6 +181,8 @@ def main():
     print("WRITE_SUCCESS_NORMAL", result["verified_equal_state_shortcut"]["normal_write_success_to_shared_path"])
     print("WRITE_SUCCESS_CRITICAL", result["verified_equal_state_shortcut"]["critical_write_success_to_shared_path"])
     print("RECOVERY_CMD", repr(extracted))
+    for line in mode_helper_assembly:
+        print("MODE_HELPER_ARM64", line)
     for key, info in source_excerpt.items():
         print("GHIDRA_FUNCTION", key, json.dumps(info, ensure_ascii=False)[:11000])
     # Full control-flow context: the common helper decides whether the
