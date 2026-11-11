@@ -69,7 +69,7 @@ def main():
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--board-sha256", required=True)
     p.add_argument("--eea-sha256", required=True)
-    a, b = p.parse_args()
+    a = p.parse_args()
     board, eea = a.board.read_bytes(), a.eea.read_bytes()
     if sha(board) != a.board_sha256.lower() or sha(eea) != a.eea_sha256.lower():
         raise ValueError("Source image SHA256 verification failed")
