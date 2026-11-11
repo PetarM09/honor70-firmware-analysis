@@ -97,6 +97,19 @@ def parse_keymaster(text):
             ),
             "mentions_return_code_15_decimal": bool(re.search(r"(?:return|=)\s*-15\s*;", body)),
         }
+        interesting = re.compile(
+            r"0xfffffff1|0xfffffffffffffff1|FUN_00117980|qsee_is_sw_fuse_blown|"
+            r"qsee_stor_read_sectors|qsee_stor_write_sectors",
+            flags=re.IGNORECASE,
+        )
+        evidence_context = []
+        for match in interesting.finditer(body):
+            start = max(0, match.start() - 240)
+            end = min(len(body), match.end() + 320)
+            evidence_context.append({
+                "term": match.group(),
+                "excerpt": body[start:end].strip(),
+            })
         result[name] = {
             "ghidra_target": "0x" + addr,
             "body_sha256": sha(body.encode()),
@@ -104,6 +117,7 @@ def parse_keymaster(text):
             "calls_and_symbols": calls[:100],
             "status_constants": raw_ret[:80],
             "guards": guards,
+            "condition_contexts": evidence_context[:16],
         }
     # Check presence of the previously identified fuse-check helper in BOTH handlers.
     for label in ("km_read_device_state", "km_write_device_state"):
@@ -150,6 +164,8 @@ def main():
     for name, item in keymaster.items():
         print("KM", name, item["ghidra_target"], json.dumps(item["guards"]),
               "CALLS", json.dumps(item["calls_and_symbols"]))
+        for context in item["condition_contexts"]:
+            print("KM_CONTEXT", name, context["term"], repr(context["excerpt"][:650]))
 
 
 if __name__ == "__main__":
