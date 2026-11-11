@@ -1,0 +1,58 @@
+name: Honor70 Board vs EEA Featenabler Code Comparison
+
+on:
+  push:
+    paths:
+      - '.github/workflows/compare-board-eea-featenabler.yml'
+      - 'tools/compare_featenabler.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out audited comparison code
+        uses: actions/checkout@v4
+
+      - name: Retrieve previously extracted signed Board and stock firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/board_artifact inputs/eea_artifact inputs/binaries report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir inputs/board_artifact
+          gh run download 42539482630 --repo "$GITHUB_REPOSITORY" --name HONOR70_MATCHING_SECURE_BOOT_MODULES --dir inputs/eea_artifact
+          unzip -p inputs/board_artifact/selected_bootchain.zip bootloaderimage/featenabler.mbn > inputs/binaries/board_featenabler.mbn
+          cp inputs/eea_artifact/exports/featenabler.mbn inputs/binaries/eea_featenabler.mbn
+          test -s inputs/binaries/board_featenabler.mbn
+          test -s inputs/binaries/eea_featenabler.mbn
+
+      - name: Pin both images by known original SHA-256
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' 142eaec4ad05958140860743905aa5d5c8374b10387e48cd5a05697291111dea inputs/binaries/board_featenabler.mbn \
+            5cd32cd0b7d6e9d91cef22ddb07f2659aad0fd9c3b8be0c95a1e81ac6294b369 inputs/binaries/eea_featenabler.mbn | sha256sum --check
+
+      - name: Compare executable ELF segments and feature-related strings read-only
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/compare_featenabler.py
+          python3 tools/compare_featenabler.py \
+            --board inputs/binaries/board_featenabler.mbn \
+            --eea inputs/binaries/eea_featenabler.mbn \
+            --board-sha256 142eaec4ad05958140860743905aa5d5c8374b10387e48cd5a05697291111dea \
+            --eea-sha256 5cd32cd0b7d6e9d91cef22ddb07f2659aad0fd9c3b8be0c95a1e81ac6294b369 \
+            --out report/FEATENABLER_BOARD_VS_EEA.json
+          python3 -m json.tool report/FEATENABLER_BOARD_VS_EEA.json >/dev/null
+
+      - name: Publish metadata only (never raw signed images or device data)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FEATENABLER_BOARD_VS_EEA_STATIC_COMPARISON
+          path: report/FEATENABLER_BOARD_VS_EEA.json
+          retention-days: 14
