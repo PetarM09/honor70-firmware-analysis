@@ -215,6 +215,13 @@ def main():
                 print("ABL_STRING", key, string["rva"], repr(string["text"][:180]), string["method"])
     for role in ("read_failure_message", "preread_failure_message", "write_failure_message"):
         print("XBL_MESSAGE", role, repr(report["xbl_errors"][role]))
+    # Trace post-write success/failure and the recovery wipe command's callers.
+    # These are instructions from original firmware, not executed operations.
+    print("SETTER_TAIL_BEGIN")
+    for ins in listings["state_setter"]:
+        if 0x437a0 <= ins.address < 0x43940:
+            print("SETTER_TAIL", f"{ins.address:#x}", ins.mnemonic, ins.op_str)
+    print("SETTER_TAIL_END")
 
 
 if __name__ == "__main__":
