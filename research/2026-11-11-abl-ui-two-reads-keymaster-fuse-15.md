@@ -59,7 +59,7 @@ When the live SCM state chooses secure Keymaster/RPMB:
 3. That VBRwDevice WRITE issues **another Keymaster `0x202`** to obtain the existing state.
 4. Only if *that* read's transport and returned status succeed does it issue Keymaster `0x203`.
 
-Thus a successfully progressing, **secure-backed** UI unlock path normally contains **two separate `0x202` requests before `0x203`**. A failure anywhere earlier can prevent `0x203` from ever being called. This is a conditional path reconstruction, not a live request count measured on the user's phone.
+If the setter actually issues a **secure-backed VBRwDevice WRITE**, the UI route may require **two separate `0x202` requests before `0x203`**. A failure anywhere earlier can prevent `0x203` from ever being called. **Further correction (2026-11-12):** the setter can skip that new WRITE altogether when its local logical state (from `0x13008`) already matches the requested state; the common path can still proceed toward recovery wipe. See [confirmed equal-state shortcut and wipe analysis](2026-11-12-abl-local-state-equality-can-skip-write-before-wipe.md). This is a conditional firmware reconstruction, not a live request count measured on the phone.
 
 ## Step 4 — Why Keymaster -15 does NOT prove the milestone fuse is blown
 
