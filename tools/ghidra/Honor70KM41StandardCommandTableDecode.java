@@ -72,6 +72,33 @@ public class Honor70KM41StandardCommandTableDecode extends GhidraScript {
           dec.dispose();
         }
       }
+      // Independently decompile both real 0x10e callback dependencies.
+      // These code addresses are read-only evidence, not entrypoints to invoke.
+      long[] nested={0x1184d4L,0x1177a0L};
+      for(long addr:nested){
+        Address site=toAddr(addr);
+        Function inner=currentProgram.getFunctionManager().getFunctionAt(site);
+        if(inner==null)try{inner=createFunction(site,"KM_DELETE_KEYS_RELATED_"+Long.toHexString(addr));}
+          catch(Exception ex){p.println("INNER_CREATE_WARNING "+site+" "+ex);}
+        if(inner==null)inner=currentProgram.getFunctionManager().getFunctionContaining(site);
+        p.println("KEY_DELETE_INNER_TARGET "+site+" RECOVERED "+(inner!=null));
+        if(inner==null)continue;
+        p.println("KEY_DELETE_INNER_FUNCTION "+inner.getName()+" ENTRY "+inner.getEntryPoint()+
+                  " BODY_BYTES "+inner.getBody().getNumAddresses());
+        DecompInterface dec=new DecompInterface();
+        dec.toggleCCode(true);
+        dec.setSimplificationStyle("decompile");
+        if(dec.openProgram(currentProgram)){
+          DecompileResults result=dec.decompileFunction(inner,65,monitor);
+          if(result.decompileCompleted()&&result.getDecompiledFunction()!=null){
+            String code=result.getDecompiledFunction().getC();
+            p.println("KEY_DELETE_INNER_DECOMPILED_BEGIN "+site);
+            p.println(code.length()>45000?code.substring(0,45000)+"\n...[TRUNCATED]":code);
+            p.println("KEY_DELETE_INNER_DECOMPILED_END "+site);
+          }else p.println("KEY_DELETE_INNER_ERROR "+site+" "+result.getErrorMessage());
+        }else p.println("KEY_DELETE_INNER_ERROR "+site+" failed to open program");
+        dec.dispose();
+      }
     }
     println("KM41 original 67-slot callback table decoded, "+out.length()+" bytes");
   }
