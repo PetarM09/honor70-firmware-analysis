@@ -65,7 +65,7 @@ jobs:
             print('DELETE_ALL_KEYS_DECOMPILED',d[a:b if b>=0 else a+28000][:28000])
           else:
             print('NO_REGISTERED_0x10E_HANDLER_DECOMP')
-          for addr in ('001184d4','001177a0'):
+          for addr in ('001184d4','001177a0','0011aa6c','0011aa78','0011ab10','001174bc'):
             head='KEY_DELETE_INNER_DECOMPILED_BEGIN '+addr
             tail='KEY_DELETE_INNER_DECOMPILED_END '+addr
             a=d.find(head)
