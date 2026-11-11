@@ -72,11 +72,12 @@ The recovery-message write helper is `FUN_000380E0`; the code is conditional on 
 
 `FUN_00038370` is a *separate* reset-state routine with more than one possible zero-return branch:
 
-- If `FUN_0000313C()==0` **or** `FUN_00003134()==3`, it returns zero **without calling the VerifiedBoot reset-method pointer**.
-- Otherwise it locates the VerifiedBoot UEFI protocol and may invoke method at protocol offset `+0x30`. Errors contain `Error Reseting device state: %r` or `Unable to locate VB protocol: %r`.
-- What those two mode helpers represent on the current handset remains unresolved.
+- The function contains a generic shortcut if `FUN_0000313C()==0` **or** `FUN_00003134()==3`. In that case the reset method would be bypassed.
+- **But in this exact stock EEA ABL those helpers are constants**: at `0x313C` the instruction is `mov w0,#1; ret`, and at `0x3134` it is `mov w0,#2; ret`. Therefore neither shortcut condition can be satisfied in this build.
+- The actual retail path locates the VerifiedBoot UEFI protocol and invokes its method at protocol offset `+0x30`, unless locating the protocol fails. Errors contain `Error Reseting device state: %r` or `Unable to locate VB protocol: %r`.
+- The exact semantics and persistence effects of the protocol's `+0x30` method remain the next static reverse-engineering target.
 
-**Thus even a successful return from this helper is not universal proof that the secure reset method ran.**
+**Correction verified in [run 43118516950](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43118516950):** a zero return from `0x38370` in this retail build goes through the VerifiedBoot reset protocol; its *generic* internal shortcut is dead for the present constants. It still does **not** prove that permanent unlock occurred.
 
 ## Additional recovery branch: attempt to reverse the requested state on reset error
 
@@ -98,6 +99,6 @@ This is a **verified alternative code path** that can explain how wipe and no un
 
 ## Next genuinely useful offline question
 
-Trace the two mode helpers `FUN_0000313C` and `FUN_00003134`, and the exact OEMINFO-derived initializer feeding `+0x104`. That could establish which shortcut predicates exist in stock firmware without attempting to alter secure state. Distinguishing the **live** path still requires genuine historical logs or non-destructive, authorized device-state evidence. There is no justified EDL write target or verified permanent unlock yet.
+The mode helpers are now **resolved to constants** (1 and 2). The next question is which concrete `VerifiedBootDxe` implementation is behind protocol method `+0x30`, whether it resets a persistent lock record or a different verified-boot state, and how that interacts with ABL's OEMINFO-derived `+0x104` local check. Distinguishing the **live** path still requires genuine historical logs or non-destructive, authorized device-state evidence. There is no justified EDL write target or verified permanent unlock yet.
 
 No EDL/fastboot/ADB call or device flash took place in these GitHub analyses. Do not attempt to force the equality condition, reset helper, RPMB, SCM bit, or OEMINFO record by writing phone partitions.
