@@ -43,10 +43,10 @@ def verify(report, source, *, expected_source=FENNIE_FUTEX_SHA):
     start = text.find("static int futex_requeue(")
     if start < 0:
         raise ValueError("Missing Fennie futex_requeue")
-    end = text.find("retry:", start)
-    if end < start:
-        raise ValueError("Missing early futex guard section")
-    block = text[start:end]
+    key_start = text.find("ret = get_futex_key(uaddr1", start)
+    if key_start < start:
+        raise ValueError("Missing first key lookup")
+    block = text[start:key_start + len("ret = get_futex_key(uaddr1")]
     positions = [block.find(needle) for needle in SOURCE_NEEDLES]
     if min(positions) < 0 or positions != sorted(positions):
         raise ValueError("Source guard sequence changed")
