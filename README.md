@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [**Original signed DDR/Lite EDL XML command registry (2026-11-12)**](research/2026-11-12-signed-firehose-15-command-xml-dispatch-no-peekpoke.md) | **15 original XML handlers proven**: `program`, `read`, `patch`, `erase`, `firmwarewrite`, `fixgpt`, etc.; **no `peek` or `poke` handler** in the callback table. Actual `firmwarewrite` updates storage-device firmware and `fixgpt` repairs UFS LUN partition tables; **neither directly writes Keymaster lock state**. Both original binaries independently decompiled. **No permanent unlock**. |
 | [**EDL WRITE feasibility / signed Firehose RPMB study (2026-11-12)**](research/2026-11-12-edl-write-firehose-rpmb-options-complete-audit.md) | Original DDR/Lite Firehose SHA256 verified; `UFS RPMB ReadWrite Size` is **storage descriptor logging**, **not RPMB authenticated WRITE**. Firehose XML `patch` updates ordinary UFS sectors; `peek/poke` contain Secure Boot denial strings without proven runtime bypass. All realistic EDL/GPT/OEMINFO/ABL/RPMB write paths ranked with explicit prerequisites. **No unlocked state or validated unlock exploit.** |
 | [GPT/NO_AVB public unlock PoC — HONOR signed AVB chain cross-check (2026-11-12)](research/2026-11-12-noavb-fw-ufsdev-after-milestone-not-boot-bypass.md) | **New source-confirmed negative**: the stock ABL `NoAVBLoad_fw_ufsdev` helper is for **UFS device firmware**, reached **after** a VerifiedBoot milestone call, not evidence of the Redmi 14R's GPT-dependent `NO_AVB` Android boot path. Exact signed-source check [passed](../../actions/runs/43133171655). GPT renaming has no validated unlock effect on HONOR 70. |
 | [New Qualcomm Fastboot CVE-24091/24092 and service-mode exploit assessment (2026-11-12)](research/2026-11-12-fastboot-cve24091-24092-slock-rdmode-pregate-assessment.md) | Display-mode Fastboot handlers `0x25E2C`/`0x49098`/`0x492D0` are registered but **blocked by the locked 49-prefix gate**. SLock/RDMode-v1 enforce signed credentials. An apparent pre-gate 64-byte NUL overwrite is **not an OOB in the normal USB RX path**, which allocates **16 MiB**. No working permanent unlock exploit demonstrated. |
@@ -33,6 +34,10 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Exact signed DDR/Lite registered firmwarewrite/fixgpt code (both successful)](../../actions/runs/43138463218)
+- [Signed executable XML callback handler table, 15 commands, no peek/poke](../../actions/runs/43137871278)
+- [Original ELF standalone command token sanity checks (both successful)](../../actions/runs/43137433674)
+- [Secure-monitor state query in original DDR/Lite Ghidra decompilations](../../actions/runs/43136649865)
 - [Signed DDR and Lite Firehose RPMB descriptor and UFS patch decompilation](../../actions/runs/43135436197)
 - [DDR/Lite Firehose secure-boot memory command ARM64 reference map](../../actions/runs/43135236599)
 - [Parallel signed original Firehose secure-memory Ghidra audit](../../actions/runs/43134581030)
