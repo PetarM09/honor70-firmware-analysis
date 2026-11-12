@@ -66,8 +66,35 @@ No new EDL write experiment has a verified expected permanent-unlock effect from
 
 UMT QcFire's October 2026 supported-model updates include HONOR 70 FNE-NX9 with an internal loader database refresh. This is **not** a public reproducible permanent bootloader-unlock procedure; FRP and loader support must remain distinct from secured lock-state changes. Reference: https://www.ultimatemultitool.com/modules-support/qualcomm/
 
-## Best next verifiable question
+## Follow-up completed: original `firmwarewrite` and `fixgpt` also decoded
 
-Examine **the registered executable `firmwarewrite` and `fixgpt` functions** and confirm whether they have any actual Secure Boot or Keymaster/RPMB interaction rather than normal UFS-only I/O. Do not send arbitrary firmware or GPT to the physical phone without original image signatures, rollback compatibility and an explicit reproducible unlock mechanism.
+- [Both signed original DDR/Lite Ghidra jobs successful](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43138202304).
+- [Original full function bodies extracted for direct inspection](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43138463218).
+- [Reproducible Ghidra decompiler script](../tools/ghidra/Honor70FirehoseFirmwareWriteFixGPTEvidence.java).
 
-Current research has no evidence of a viable protected-state unlock primitive.
+Original DDR `firmwarewrite`, `FUN_14826A30`, and Lite `FUN_14826A24` parse an XML request's `SECTOR_SIZE_IN_BYTES` and require it to equal **1**, obtain `num_partition_sectors` as the firmware payload length, receive the payload, then log:
+
+```text
+Will do firmware update on storage part of size %d
+```
+
+They invoke **DDR `FUN_14829B8C(...)` / Lite `FUN_14829B80(...)`** to send the update to the underlying storage-device firmware path. This is **not** a demonstrated ABL unlock-state setter, Keymaster call or authenticated RPMB writer. Flashing arbitrary UFS microcode could render the device unusable.
+
+Original DDR `fixgpt`, now explicitly recovered as a registered Ghidra function at **`0x14827BCC`**, and Lite at **`0x14827BC0`**, parse `grow_last_partition` and call **DDR `FUN_148284CC` / Lite `FUN_148284C0`** to repair GPT for one or multiple physical LUNs, logging:
+
+```text
+G Failed to fix the GPT for LUN/PhyPart %d
+```
+
+This handler manages the storage partition table. It does **not** have any direct call to Keymaster `0x203`, nor does it prove that modifying GPT will change the platform's signed AVB2 versus NO_AVB boot decision. `fixgpt` should **not** be used experimentally as a bootloader bypass.
+
+Both recovered handler versions were obtained from the verified executable function pointers in the **15-entry signed XML command table**; the original Ghidra binary importer failed to discover `fixgpt` automatically, so the audit explicitly disassembled and created its function at the known callback address before decompiling. No function bytes were patched.
+
+## Current decision
+
+All normal registered Firehose XML commands can manipulate storage, update storage firmware, or read storage metadata, but **no standard registered memory `peek`/`poke` entry exists** and no studied handler demonstrates authenticated Keymaster/RPMB bootloader-state write.
+
+The remaining source-level research would require a different, verified secure-world primitive, a genuine bootloader parser exploit reachable from LOCKED, or the **actual signed FNE-NX9-BD** engineering firmware with compatible security/rollback and a proved persistent unlock path. No new blind EDL, GPT, XBL or firmwarewrite action is justified from these binaries.
+
+**No confirmed permanent HONOR 70 unlock method yet.**
+
