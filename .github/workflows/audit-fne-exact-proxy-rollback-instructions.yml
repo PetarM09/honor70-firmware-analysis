@@ -6,6 +6,8 @@ on:
       - 'tools/audit_exact_fne_rollback_instruction_condition.py'
       - 'tools/check_ghostlock_evidence.py'
       - 'tools/test_check_ghostlock_evidence.py'
+      - 'tools/audit_fne_embedded_ikconfig.py'
+      - 'tools/test_audit_fne_embedded_ikconfig.py'
       - '.github/workflows/audit-fne-exact-proxy-rollback-instructions.yml'
   workflow_dispatch:
 
@@ -48,6 +50,10 @@ jobs:
             tail -50 report/VMLINUX_RECOVERY.txt
             exit 1
           }
+          python3 -m unittest discover -s tools -p 'test_audit_fne_embedded_ikconfig.py' -v
+          python3 tools/audit_fne_embedded_ikconfig.py \
+            --kernel data/kernel.Image \
+            --out report/ORIGINAL_EEA_KERNEL_IKCONFIG.json
           python3 -m py_compile tools/audit_exact_fne_rollback_instruction_condition.py
           python3 tools/audit_exact_fne_rollback_instruction_condition.py \
             --boot src/boot.img \
