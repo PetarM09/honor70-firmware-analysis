@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'tools/audit_exact_fne_rollback_instruction_condition.py'
+      - 'tools/check_ghostlock_evidence.py'
+      - 'tools/test_check_ghostlock_evidence.py'
       - '.github/workflows/audit-fne-exact-proxy-rollback-instructions.yml'
   workflow_dispatch:
 
@@ -53,6 +55,10 @@ jobs:
             --elf data/vmlinux.elf \
             --out report/ORIGINAL_EEA_PROXY_ROLLBACK_CONDITIONS.json
           python3 -m json.tool report/ORIGINAL_EEA_PROXY_ROLLBACK_CONDITIONS.json >/dev/null
+          python3 -m unittest discover -s tools -p 'test_check_ghostlock_evidence.py' -v
+          python3 tools/check_ghostlock_evidence.py \
+            report/ORIGINAL_EEA_PROXY_ROLLBACK_CONDITIONS.json \
+            --out report/ORIGINAL_EEA_GHOSTLOCK_EVIDENCE_GATES.json
       - uses: actions/upload-artifact@v4
         with:
           name: HONOR70_STOCK_EEA_PROXY_LOCK_ROLLBACK_INSTRUCTIONS
