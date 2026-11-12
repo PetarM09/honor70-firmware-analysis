@@ -2,7 +2,7 @@
 
 Reproducible research on a personally owned **HONOR 70 FNE-NX9** (EEA C431, MagicOS **8.0.0.290**) against the Chinese **FNE-AN00 HMT Board** firmware.
 
-> **Current result (2026-11-11): permanent bootloader unlock has NOT been demonstrated.** Code-level firmware findings must not be mistaken for the actual secure state of the handset. No proposed research here authorizes an unverified EDL write to signed boot firmware, secure state, RPMB, GPT, FRP, OEMINFO or `devinfo`.
+> **Current result (2026-11-12): permanent bootloader unlock has NOT been demonstrated.** Code-level firmware findings must not be mistaken for the actual secure state of the handset. No proposed research here authorizes an unverified EDL write to signed boot firmware, secure state, RPMB, GPT, FRP, OEMINFO or `devinfo`.
 
 ## Source firmware
 
@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [New Qualcomm Fastboot CVE-24091/24092 and service-mode exploit assessment (2026-11-12)](research/2026-11-12-fastboot-cve24091-24092-slock-rdmode-pregate-assessment.md) | Display-mode Fastboot handlers `0x25E2C`/`0x49098`/`0x492D0` are registered but **blocked by the locked 49-prefix gate**. SLock/RDMode-v1 enforce signed credentials. An apparent pre-gate 64-byte NUL overwrite is **not an OOB in the normal USB RX path**, which allocates **16 MiB**. No working permanent unlock exploit demonstrated. |
 | [Three parallel signed-firmware workers: ABL, XBL, KM41 (new)](research/2026-11-12-parallel-three-lanes-abl-xbl-km-unlock-triage.md) | **Three GitHub Actions matrix jobs completed successfully**. Original ABL Fastboot handler checks logical state for equality **before** UI/secure write and exits early with `Device already`; separate XBL read-before-write/SCM and KM41 fuse gates reconfirmed. No live unlock method or device-state data established. |
 | [ABL OEMINFO RDMode-v1 → local +0x104 → unlock gate (new)](research/2026-11-12-abl-oeminfo-rdmode-v1-localstate-unlock-shortcut.md) | Original ABL reads OEMINFO record **0x82** and checks RD-mode-v1 identifiers (`0XEED6030008`, `fastboot flash:rdmodev1`) via a SHA256/RSA-PSS-related helper; initialization writes the resulting logical value to `+0x104`. UI unlock requests **1**. In unchanged limited Fastboot mode, the equal-state shortcut cannot skip a new unlock WRITE. The field is **not a direct RPMB Keymaster read**. |
 | [VerifiedBoot reset slot is Keymaster DELETE_ALL_KEYS 0x10E (verified)](research/2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md) | Original GUID+vtable registration links ABL `+0x30` to XBL `0x1C84`; the XBL sends Keymaster `0x10E` with its **own registered handler `0x107C48`**. An enabled branch requests zeroing of **12 KiB of protected key storage** and clears 16 in-memory cache entries. This is **not** bootloader state WRITE `0x203`; wipe never proves unlock. |
@@ -30,6 +31,11 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Independent USB RX allocation proof rejecting the hypothesized 64-byte OOB](../../actions/runs/43131222563)
+- [Original USB buffer allocation and event code](../../actions/runs/43131042998)
+- [Confirmed registered display handlers blocked by the locked Fastboot allowlist](../../actions/runs/43129979350)
+- [Signed SLock-v1 / RDMode-v1 handlers and signature verification](../../actions/runs/43128640083)
+- [Original ABL Fastboot commands and CVE candidate scan](../../actions/runs/43128174561)
 - [Three concurrent ABL/XBL/KM41 source-asserted research jobs](../../actions/runs/43126930044)
 - [Independent original signed ABL RDMode-v1 and UI unlock state truth-table check](../../actions/runs/43125419237)
 - [Exact OEMINFO 0x82 and Fastboot local state ARM64/UI table](../../actions/runs/43124622604)
