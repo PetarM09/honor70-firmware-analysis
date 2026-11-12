@@ -1,0 +1,74 @@
+name: HONOR70 Deep Firehose Peek Poke SecureBoot Predicate Audit
+on:
+  push:
+    paths:
+      - 'tools/ghidra/Honor70FirehosePeekPokeGuardAudit.java'
+      - '.github/workflows/inspect-firehose-peek-poke-guard-20261112.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile:
+    name: "${{ matrix.loader }} signed Firehose security gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact signed Firehose loader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p raw inputs analysis dist
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir inputs
+          unzip -p inputs/selected_bootchain.zip bootloaderimage/prog_firehose_${{ matrix.loader }}.elf > raw/Firehose.elf
+          if [ "${{ matrix.loader }}" = "ddr" ]; then
+            echo '9c892e716320764c20055d8374bf8eca7418b3ff2177f81794e18d3656fc55a8  raw/Firehose.elf' | sha256sum -c
+          else
+            echo 'e029df6e2d532de87c2279e960472ec0e4799aca53bc27ed4fa3e4027b05d101  raw/Firehose.elf' | sha256sum -c
+          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Restore pinned Ghidra build
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Decompile original Firehose peek poke handler, secure-boot checks and dispatch
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/honor70_firehose_${{ matrix.loader }}
+          "$HEADLESS" /tmp/honor70_firehose_${{ matrix.loader }} HONOR70_PROGRAMMER \
+            -import "$GITHUB_WORKSPACE/raw/Firehose.elf" \
+            -scriptPath "$GITHUB_WORKSPACE/tools/ghidra" \
+            -postScript Honor70FirehosePeekPokeGuardAudit.java \
+            -analysisTimeoutPerFile 600 -max-cpu 2 -deleteProject \
+            > analysis/GHIDRA_STATUS.log 2>&1 || { tail -160 analysis/GHIDRA_STATUS.log; exit 1; }
+          test -s analysis/HONOR70_FIREHOSE_PEEK_POKE_SECUREBOOT_GUARD_SOURCE.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('analysis/HONOR70_FIREHOSE_PEEK_POKE_SECUREBOOT_GUARD_SOURCE.txt').read_text(errors='replace')
+          print('REPORT_CHARS',len(s))
+          for l in s.splitlines():
+            if l.startswith(('PROGRAM ','SITE ','===== SECURITY_GATE','CALLER ','ANALYZED_FUNCTION_COUNT','DECOMP_FAILED')):
+              print(l)
+          for needle in ('peek','poke','secure','FUN_1482011c','MEMORY','0xffffffff'):
+              print('FIND_COUNT',needle,s.count(needle))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_SECURITY_GHIDRA"
+          path: analysis/
+          retention-days: 14
