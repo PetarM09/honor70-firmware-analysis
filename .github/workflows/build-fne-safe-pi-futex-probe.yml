@@ -1,0 +1,51 @@
+name: HONOR70 Safe ARM64 PI Futex Availability Probe
+
+on:
+  push:
+    paths:
+      - 'tools/fne_pi_futex_probe_arm64.S'
+      - '.github/workflows/build-fne-safe-pi-futex-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-build static ARM64 no-libc probe (NO kernel UAF calls)
+        run: |
+          set -euo pipefail
+          command -v clang
+          command -v ld.lld
+          mkdir -p report
+          clang --target=aarch64-linux-gnu \
+            -nostdlib -static -fuse-ld=lld \
+            -Wl,-e,_start -Wl,-z,noexecstack \
+            -o report/fne_pi_futex_probe_arm64 \
+            tools/fne_pi_futex_probe_arm64.S
+          file report/fne_pi_futex_probe_arm64 | tee report/ELF_TARGET.txt
+          readelf -h report/fne_pi_futex_probe_arm64 | tee report/ELF_HEADER.txt
+          readelf -l report/fne_pi_futex_probe_arm64 | tee report/ELF_PROGRAM_HEADERS.txt
+          grep -q 'Machine:.*AArch64' report/ELF_HEADER.txt
+          ! grep -q ' INTERP ' report/ELF_PROGRAM_HEADERS.txt
+          ! grep -q ' DYNAMIC ' report/ELF_PROGRAM_HEADERS.txt
+          test -x report/fne_pi_futex_probe_arm64
+          sha256sum report/fne_pi_futex_probe_arm64 | tee report/BINARY_SHA256.txt
+          cat > report/SCOPE.txt <<'TXT'
+          This binary only tests uncontended FUTEX_LOCK_PI_PRIVATE and FUTEX_UNLOCK_PI_PRIVATE
+          on its own 32-bit futex in a normal ADB-shell userspace process.
+          It DOES NOT use FUTEX_CMP_REQUEUE_PI, FNE vulnerability triggers, kernel
+          arbitrary writes, physical addresses, root or persistent unlock.
+          Build success proves cross-compilation and ELF structure ONLY.
+          Execute on the user's authorized phone to verify live syscall availability.
+          Exit code: 0=both syscalls succeeded; 11=lock failed; 12=unlock failed.
+          TXT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_SAFE_PI_FUTEX_ARM64_PROBE
+          path: report/
+          retention-days: 30
