@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [GPT/NO_AVB public unlock PoC — HONOR signed AVB chain cross-check (2026-11-12)](research/2026-11-12-noavb-fw-ufsdev-after-milestone-not-boot-bypass.md) | **New source-confirmed negative**: the stock ABL `NoAVBLoad_fw_ufsdev` helper is for **UFS device firmware**, reached **after** a VerifiedBoot milestone call, not evidence of the Redmi 14R's GPT-dependent `NO_AVB` Android boot path. Exact signed-source check [passed](../../actions/runs/43133171655). GPT renaming has no validated unlock effect on HONOR 70. |
 | [New Qualcomm Fastboot CVE-24091/24092 and service-mode exploit assessment (2026-11-12)](research/2026-11-12-fastboot-cve24091-24092-slock-rdmode-pregate-assessment.md) | Display-mode Fastboot handlers `0x25E2C`/`0x49098`/`0x492D0` are registered but **blocked by the locked 49-prefix gate**. SLock/RDMode-v1 enforce signed credentials. An apparent pre-gate 64-byte NUL overwrite is **not an OOB in the normal USB RX path**, which allocates **16 MiB**. No working permanent unlock exploit demonstrated. |
 | [Three parallel signed-firmware workers: ABL, XBL, KM41 (new)](research/2026-11-12-parallel-three-lanes-abl-xbl-km-unlock-triage.md) | **Three GitHub Actions matrix jobs completed successfully**. Original ABL Fastboot handler checks logical state for equality **before** UI/secure write and exits early with `Device already`; separate XBL read-before-write/SCM and KM41 fuse gates reconfirmed. No live unlock method or device-state data established. |
 | [ABL OEMINFO RDMode-v1 → local +0x104 → unlock gate (new)](research/2026-11-12-abl-oeminfo-rdmode-v1-localstate-unlock-shortcut.md) | Original ABL reads OEMINFO record **0x82** and checks RD-mode-v1 identifiers (`0XEED6030008`, `fastboot flash:rdmodev1`) via a SHA256/RSA-PSS-related helper; initialization writes the resulting logical value to `+0x104`. UI unlock requests **1**. In unchanged limited Fastboot mode, the equal-state shortcut cannot skip a new unlock WRITE. The field is **not a direct RPMB Keymaster read**. |
@@ -31,6 +32,8 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [NOAVB fw_ufsdev helper correctly identified as post-milestone UFS handling](../../actions/runs/43133171655)
+- [Original signed AVB2/NOAVB branch and GPT evidence](../../actions/runs/43132274937)
 - [Independent USB RX allocation proof rejecting the hypothesized 64-byte OOB](../../actions/runs/43131222563)
 - [Original USB buffer allocation and event code](../../actions/runs/43131042998)
 - [Confirmed registered display handlers blocked by the locked Fastboot allowlist](../../actions/runs/43129979350)
