@@ -23,16 +23,19 @@ import java.io.IOException;
  * Non-exploit validation that ordinary Android apps can use uncontended
  * PI-futex LOCK/UNLOCK from their own UID, rather than only the adb shell.
  *
- * No special permissions, no INTERNET permission, no rooting and no requeue.
+ * No special permissions, no INTERNET permission, no rooting. The optional
+ * requeue check uses deliberately invalid identical addresses; no queue changes.
  */
 public final class MainActivity extends Activity {
     static {
         System.loadLibrary("fnepi");
     }
     private static native String runNativeProbe();
+    private static native String runRejectedRequeueProbe();
 
     private TextView output;
     private Button runButton;
+    private Button requeueButton;
     private String report;
 
     @Override
@@ -45,20 +48,25 @@ public final class MainActivity extends Activity {
         layout.setPadding(p, p, p, p);
 
         TextView title = new TextView(this);
-        title.setText("HONOR 70 — PI-Futex Application Gate");
+        title.setText("HONOR 70 — PI-Futex Application Gate v0.2");
         title.setTextSize(20);
         title.setGravity(Gravity.CENTER_HORIZONTAL);
         layout.addView(title);
 
         TextView warning = new TextView(this);
         warning.setPadding(0, p, 0, p);
-        warning.setText("Ovaj test NE koristi GhostLock ranjivost, requeue, root ili EDL. "
-                + "Radi samo LOCK_PI/UNLOCK_PI nad jednom sopstvenom promenljivom.");
+        warning.setText("Bez root/EDL i bez aktiviranja GhostLock-a. Prvi test koristi "
+                + "LOCK_PI/UNLOCK_PI. Drugi test šalje namerno nevažeći CMP_REQUEUE_PI "
+                + "sa istom adresom izvora i odredišta; kernel treba odmah da vrati EINVAL.");
         layout.addView(warning);
 
         runButton = new Button(this);
         runButton.setText("Proveri PI-futex iz Android aplikacije");
         layout.addView(runButton);
+
+        requeueButton = new Button(this);
+        requeueButton.setText("Proveri CMP_REQUEUE_PI rano odbijanje");
+        layout.addView(requeueButton);
 
         Button copyButton = new Button(this);
         copyButton.setText("Kopiraj rezultat");
@@ -98,6 +106,30 @@ public final class MainActivity extends Activity {
                 });
             }, "fne-pi-gate").start();
         });
+        requeueButton.setOnClickListener(v -> {
+            runButton.setEnabled(false);
+            requeueButton.setEnabled(false);
+            output.setText("Provera ranog odbijanja nevažećeg CMP_REQUEUE_PI poziva...");
+            new Thread(() -> {
+                String nativeResult;
+                try {
+                    nativeResult = runRejectedRequeueProbe();
+                } catch (Throwable ex) {
+                    nativeResult = "NATIVE_ERROR: " + ex.getClass().getSimpleName()
+                            + " " + String.valueOf(ex.getMessage());
+                }
+                final String text = "FNE_PI_GATE_APP_REQUEUE_GUARD_REPORT_V2\n"
+                        + deviceDetails() + "\n" + nativeResult
+                        + "\nBez čekajućih niti, requeue promene, UAF-a ili root pokušaja.";
+                runOnUiThread(() -> {
+                    report = text;
+                    output.setText(text);
+                    runButton.setEnabled(true);
+                    requeueButton.setEnabled(true);
+                });
+            }, "fne-requeue-invalid-guard").start();
+        });
+
         copyButton.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager)
                     getSystemService(Context.CLIPBOARD_SERVICE);
