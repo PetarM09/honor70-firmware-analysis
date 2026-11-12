@@ -43,6 +43,18 @@ class Tests(unittest.TestCase):
         a=fixture()
         a[1]["on_device_boot_tree_selection"]["selected_overlay_from_uploaded_dtbo"]["alternate_same_model_table_index_not_selected"]=18
         with self.assertRaises(ValueError):verify(*a)
+    def test_board_id_mismatch_rejected(self):
+        a=fixture()
+        a[2]["phone_reported_properties"]["ro.board.boardid"]="8780"
+        with self.assertRaises(ValueError):verify(*a)
+    def test_board_variant_mismatch_rejected(self):
+        a=fixture()
+        a[3]["selected_fdt_entries"]["overlay_dtbo_18"]["hardware_version"]="WRONG"
+        with self.assertRaises(ValueError):verify(*a)
+    def test_wrong_alternate_board_id_rejected(self):
+        a=fixture()
+        a[3]["selected_fdt_entries"]["overlay_dtbo_25"]["qcom_board_id_decimal"]=8790
+        with self.assertRaises(ValueError):verify(*a)
     def test_untrusted_runtime_fdt_attestation_rejected(self):
         a=fixture();a[1]["on_device_boot_tree_selection"]["actual_active_merged_fdt_directly_read"]=True
         with self.assertRaises(ValueError):verify(*a)
