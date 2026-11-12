@@ -46,7 +46,7 @@ def verify(report, source, *, expected_source=FENNIE_FUTEX_SHA):
     key_start = text.find("ret = get_futex_key(uaddr1", start)
     if key_start < start:
         raise ValueError("Missing first key lookup")
-    block = text[start:key_start + len("ret = get_futex_key(uaddr1")]
+    block = text[start:key_start + len(SOURCE_NEEDLES[-1])]
     positions = [block.find(needle) for needle in SOURCE_NEEDLES]
     if min(positions) < 0 or positions != sorted(positions):
         raise ValueError("Source guard sequence changed")
