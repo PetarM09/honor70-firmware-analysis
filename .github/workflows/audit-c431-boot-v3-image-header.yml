@@ -1,0 +1,63 @@
+name: HONOR70 Original C431 Boot v3 Image Header and DTB Evidence
+
+on:
+  push:
+    paths:
+      - 'tools/audit_exact_c431_boot_v3_image_header.py'
+      - 'tools/test_audit_exact_c431_boot_v3_image_header.py'
+      - '.github/workflows/audit-c431-boot-v3-image-header.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 8 header parser regression tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_exact_c431_boot_v3_image_header.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_exact_c431_boot_v3_image_header.py' -v
+      - name: Restore signed original C431 boot Image without a phone command
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p original report
+          gh run download 42530238358 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE \
+            --dir original
+          echo '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  original/boot.img' | sha256sum -c
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,hashlib
+          b=Path("original/boot.img").read_bytes()
+          assert b[:8]==b"ANDROID!"
+          assert struct.unpack_from("<I",b,40)[0]==3
+          n=struct.unpack_from("<I",b,8)[0]
+          raw=b[4096:4096+n]
+          assert hashlib.sha256(raw).hexdigest()=="bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece"
+          Path("original/kernel.Image").write_bytes(raw)
+          PY
+      - name: Read actual ARM64 Image header, check build debugging and FDT limitations
+        run: |
+          set -euo pipefail
+          python3 tools/audit_exact_c431_boot_v3_image_header.py \
+            --boot original/boot.img \
+            --kernel original/kernel.Image \
+            --out report/C431_ORIGINAL_BOOT_V3_IMAGE_HEADER_AND_DTB_EVIDENCE.json \
+            | tee report/HEADER_SUMMARY.txt
+          python3 -m json.tool report/C431_ORIGINAL_BOOT_V3_IMAGE_HEADER_AND_DTB_EVIDENCE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_SIGNED_BOOT_V3_ARM64_HEADER
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
