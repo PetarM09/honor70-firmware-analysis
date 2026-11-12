@@ -77,7 +77,29 @@ adb install -r "$HOME/Downloads/HONOR70_FNE_PI_GATE_V02.apk"
 
 Open the app and tap **`Proveri CMP_REQUEUE_PI rano odbijanje`**. Copy the report with **`Kopiraj rezultat`**. Expected: `rc=-1 errno=22` and `REQUEUE_PI_EARLY_GUARD_OK`.
 
-**No on-device v0.2 test result has yet been reported.** Only static original-kernel guard validation and APK construction are proven so far.
+## Owner-reported live result: passed on FNE-NX9 (2026-11-12)
+
+The user submitted a photograph of the **actual FNE PI Gate v0.2** app screen showing the new **`FNE_PI_GATE_APP_REQUEUE_GUARD_REPORT_V2`** output. The photo is not copied into the repository; this transcribes visible findings, retaining their observational scope:
+
+| Property | Value shown in app |
+|---|---|
+| `Model` | `FNE-NX9` |
+| `Device` | `HNFNE` |
+| `Kernel` | `5.4.295-qgki-ga2d8945339ca` |
+| `Android SDK` | `34` |
+| `App UID` | `10228` |
+| `SELinux context` | `u:r:untrusted_app:s0:c228,c256,c512,c768` |
+| `CapEff` | `0000000000000000` |
+| `NoNewPrivs` | `0` |
+| `Seccomp` | `2` (filter) |
+| Native `FUTEX_CMP_REQUEUE_PI | PRIVATE` (identical source & target addresses) | `rc=-1 errno=22` |
+| Report outcome | **`REQUEUE_PI_EARLY_GUARD_OK`** |
+
+**Interpretation:** This is an on-device normal-app-domain success for a deliberately invalid PI requeue request: the observed `EINVAL` matches the SHA-checked original C431 early equal-address rejection path, even with `Seccomp:2` and no effective capabilities. This is stronger evidence of normal app syscall dispatch than prior shell PI lock/unlock results.
+
+**Strict evidence boundary:** The return code alone does not cryptographically prove which stage produced `EINVAL`; another early validation or a deliberately synthesized seccomp errno could in principle return it. Combined with the original machine-code source/destination guard, it is *consistent with* the expected early guard. No futex waiter was created or requeued, no vulnerable rollback was reached, and **no GhostLock UAF, arbitrary kernel write, root, or bootloader unlock was demonstrated**.
+
+The test should not be repeated for the same reason. A future meaningful probe must answer a new question while respecting the risk of triggering unstable futex lifetime conditions.
 
 ## Research conclusion
 
