@@ -1,0 +1,67 @@
+name: HONOR70 Exact C431 Futex Select Callgraph Preflight
+
+on:
+  push:
+    paths:
+      - 'tools/audit_c431_futex_pselect_callgraph.py'
+      - 'tools/test_audit_c431_futex_pselect_callgraph.py'
+      - '.github/workflows/audit-c431-futex-pselect-callgraph.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate safe direct-call parser
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_c431_futex_pselect_callgraph.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_c431_futex_pselect_callgraph.py' -v
+      - name: Fetch SHA-verified original signed C431 boot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source data report
+          gh run download 42530238358 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE --dir source
+          echo '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  source/boot.img' | sha256sum -c
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,hashlib
+          b=Path('source/boot.img').read_bytes()
+          assert b[:8]==b'ANDROID!' and struct.unpack_from('<I',b,40)[0]==3
+          size=struct.unpack_from('<I',b,8)[0]
+          raw=b[4096:4096+size]
+          assert hashlib.sha256(raw).hexdigest()=='bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece'
+          Path('data/kernel.Image').write_bytes(raw)
+          PY
+      - name: Rebuild exact C431 ELF and inspect futex/pselect direct calls
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages \
+            vmlinux-to-elf 'capstone>=5,<6' 'pyelftools>=0.31,<0.34'
+          vmlinux-to-elf data/kernel.Image data/vmlinux.elf > report/VMLINUX_RECOVERY.txt 2>&1 || {
+            tail -35 report/VMLINUX_RECOVERY.txt
+            exit 1
+          }
+          python3 tools/audit_c431_futex_pselect_callgraph.py \
+            --boot source/boot.img --kernel data/kernel.Image \
+            --elf data/vmlinux.elf \
+            --out report/ORIGINAL_C431_FUTEX_PSELECT_CALLGRAPH.json \
+            | tee report/CALLGRAPH_SUMMARY.txt
+          python3 -m json.tool report/ORIGINAL_C431_FUTEX_PSELECT_CALLGRAPH.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_ORIGINAL_FUTEX_PSELECT_GRAPH
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
