@@ -38,6 +38,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Final hard-asserted exact C431 kernel CVE proxy-lock call chain (all four expected BL sites, SUCCESS)](../../actions/runs/43146924266)
 - [Whole exact signed C431 kernel: 482,252 ARM64 BL instructions and four direct futex/proxy-lock/cancellation edges](../../actions/runs/43146638395)
 - [Original signed EEA full 67 registered Keymaster security handler map](../../actions/runs/43144963456)
 - [Original selected Keymaster 0x201 / 0x208 / 0x211 source decompilation](../../actions/runs/43145296648)
