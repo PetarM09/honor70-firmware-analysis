@@ -28,7 +28,7 @@ def main():
  syms=[]
  for line in r.stdout.splitlines():
   m=re.match(r"^([0-9a-fA-F]+)\s+([tT])\s+(\S+)$",line)
-  if m and ("remove_waiter" in m.group(3) or "futex_wait_requeue_pi" in m.group(3)):
+  if m and (m.group(3)=="remove_waiter" or m.group(3).startswith("remove_waiter$") or m.group(3).startswith("futex_wait_requeue_pi")):
    syms.append({"vaddr":int(m.group(1),16),"type":m.group(2),"symbol":m.group(3)})
  if not syms:raise ValueError("No source symbol named remove_waiter/futex_wait_requeue_pi recovered")
  with a.elf.open("rb") as f:
@@ -54,12 +54,17 @@ def main():
    entry["branch_calls"]=sum(1 for z in decoded if z["mnemonic"]=="bl")
   chosen=[x for x in syms if "remove_waiter" in x["symbol"]]
   if not chosen:raise ValueError("Original signed kernel has no remove_waiter in nm")
+  if not any(x.get("sp_el0_reads",0)>0 for x in chosen):
+   raise ValueError("Original exact remove_waiter source lacks expected current pointer read")
+  if any(x["decoded_instructions"][0]["mnemonic"]=="udf" for x in chosen):
+   raise ValueError("NOBITS/data incorrectly disassembled as source code")
   result={
    "source":"HONOR70 FNE-NX9 signed original 8.0.0.290 EEA kernel, independently SHA-verified",
    "stock_boot_sha256":BOOT_SHA,
    "stock_kernel_sha256":KERNEL_SHA,
    "vmlinux_elf_sha256":hashlib.sha256(a.elf.read_bytes()).hexdigest(),
    "interesting_exact_symbol_instances":syms,
+   "remove_waiter_reads_sp_el0_current_register":True,
    "source_interpretation_limits":[
       "Kernel disassembly proves machine instructions at recovered symbol addresses, not exploitability.",
       "A recovered symbol may have compiler suffix and a Ghidra/capstone window may cross into other functions.",
@@ -74,6 +79,7 @@ def main():
   a.out.write_text(json.dumps(result,indent=2)+"\n")
   print("SIGNED_EEA_KERNEL_MATCH",KERNEL_SHA)
   print("RECOVERED_REMOVE_WAITER_COUNT",len(chosen))
+  print("MATCHED_SOURCE_REMOVE_WAITER_READS_CURRENT_FROM_SP_EL0",True)
   for entry in syms:
    print("SOURCE_SYMBOL",entry["symbol"],hex(entry["vaddr"]),"SP_EL0_READS",entry.get("sp_el0_reads",0))
    print("SOURCE_ARM64_PREVIEW",json.dumps(entry.get("decoded_instructions",[])[:40]))
