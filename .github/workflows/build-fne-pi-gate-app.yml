@@ -66,6 +66,7 @@ jobs:
           ! grep -q 'uses-permission' report/APK_PERMISSIONS.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
             | tee report/APK_BADGING.txt
+          grep -Fq "application: label='FNE PI Gate'" report/APK_BADGING.txt
           sha256sum "$APK" | tee report/APK_SHA256.txt
           sha256sum android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
             | tee report/JNI_SHA256.txt
