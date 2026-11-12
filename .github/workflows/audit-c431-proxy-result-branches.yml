@@ -1,0 +1,55 @@
+name: HONOR70 Original C431 Proxy Return Branch Analysis
+
+on:
+  push:
+    paths:
+      - 'tools/audit_c431_proxy_result_branches.py'
+      - 'tools/test_audit_c431_proxy_result_branches.py'
+      - '.github/workflows/audit-c431-proxy-result-branches.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test all 4 paths and fail closed on mismatched original instructions
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_c431_proxy_result_branches.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_c431_proxy_result_branches.py' -v
+      - name: Fetch SHA-verified original C431 machine code and HONOR GPL references
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/arm64 evidence/gpl report
+          gh run download 43228734050 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_EXACT_C431_ARM64_RT_MUTEX_ABI_SITES \
+            --dir evidence/arm64
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES \
+            --dir evidence/gpl
+          echo '70f96efb8e45b97b977957e3ecb93a4e63fcaf4e2b7d915d20316f3c4e6263b9  evidence/gpl/FENNIE/kernel_rtmutex_c.txt' | sha256sum -c
+      - name: Prove stock four-case proxy return classification
+        run: |
+          set -euo pipefail
+          python3 tools/audit_c431_proxy_result_branches.py \
+            --arm64-report evidence/arm64/C431_ORIGINAL_RT_MUTEX_MEMORY_INSTRUCTIONS.json \
+            --honor-rtmutex evidence/gpl/FENNIE/kernel_rtmutex_c.txt \
+            --out report/ORIGINAL_C431_PROXY_RESULT_BRANCHES.json \
+            | tee report/BRANCH_SUMMARY.txt
+          python3 -m json.tool report/ORIGINAL_C431_PROXY_RESULT_BRANCHES.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_EXACT_C431_PROXY_RESULT_BRANCHES
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
