@@ -1,0 +1,38 @@
+name: HONOR70 Verify NOAVB fw_ufsdev is After Keymaster Milestone
+on:
+  push:
+    paths:
+      - 'tools/verify_honor70_noavb_fw_ufsdev_after_milestone.py'
+      - '.github/workflows/verify-noavb-fw-ufsdev-after-milestone.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download original signed EEA ABL Ghidra source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source report
+          gh run download 43132274937 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_AVB2_NOAVB_GPT_SELECTOR_ORIGINAL_EEA_ABL --dir source
+          test -s source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt
+      - name: Independently check sequence for NoAVB fw_ufsdev label
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_honor70_noavb_fw_ufsdev_after_milestone.py
+          python3 tools/verify_honor70_noavb_fw_ufsdev_after_milestone.py \
+            --ghidra source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt \
+            --out report/NOAVB_FW_UFSDEV_AFTER_MILESTONE.json
+          python3 -m json.tool report/NOAVB_FW_UFSDEV_AFTER_MILESTONE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VERIFIED_NOAVB_FW_UFSDEV_NOT_GPT_BYPASS
+          path: report/NOAVB_FW_UFSDEV_AFTER_MILESTONE.json
+          retention-days: 14
