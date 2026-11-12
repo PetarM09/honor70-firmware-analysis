@@ -1,0 +1,43 @@
+name: HONOR70 Verify ABL RDMode V1 Unlock Equality Truth Table
+
+on:
+  push:
+    paths:
+      - 'tools/verify_abl_rdmode_localstate_truth_table.py'
+      - '.github/workflows/verify-abl-rdmode-localstate-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download hash-pinned original ABL disassembly and full Ghidra RD-mode evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/abl src/ghidra report
+          gh run download 43124622604 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_OEMINFO_LOCALSTATE_AND_WRITE_SHORTCUT --dir src/abl
+          gh run download 43124806546 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src/ghidra
+          test -s src/abl/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json
+          test -s src/ghidra/HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt
+      - name: Verify runtime-independent RD-mode v1 field truth table
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_abl_rdmode_localstate_truth_table.py
+          python3 tools/verify_abl_rdmode_localstate_truth_table.py \
+            --abl-json src/abl/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json \
+            --ghidra src/ghidra/HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt \
+            --out report/ABL_RDMODE_V1_LOCAL_LOCK_STATE_TRUTH_TABLE.json
+          python3 -m json.tool report/ABL_RDMODE_V1_LOCAL_LOCK_STATE_TRUTH_TABLE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_RDMODE_V1_UNLOCK_EQUALITY_VERIFIED
+          path: report/*.json
+          retention-days: 14
