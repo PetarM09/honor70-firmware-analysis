@@ -60,6 +60,20 @@ def main():
  call=every.get(DIRECT_CALL[0])
  if call is None or call["mnemonic"]!="bl" or int(call["op_str"].strip().lstrip("#"),0)!=DIRECT_CALL[1]:
   raise ValueError("Source original rollback direct call absent")
+ branch_assertions={
+  0xffffffc01037e2f0:("cbz","w0, #0xffffffc01037e320"),
+  0xffffffc01037e2f4:("mov","w21, #1"),
+  0xffffffc01037e2f8:("mov","x0, x19"),
+  0xffffffc01037e2fc:("mov","x1, x20"),
+  0xffffffc01037e338:("cbz","w0, #0xffffffc01037e304"),
+  0xffffffc01037e33c:("ldr","x8, [x19, #0x18]"),
+  0xffffffc01037e340:("cmp","x8, #2"),
+  0xffffffc01037e344:("b.hs","#0xffffffc01037e2f8")
+ }
+ for address,(mnemonic,operand) in branch_assertions.items():
+  instruction=every.get(address)
+  if instruction is None or instruction["mnemonic"]!=mnemonic or instruction["op_str"]!=operand:
+   raise ValueError("Signed original rollback mismatch "+hex(address)+" actual "+str(instruction))
  current=every.get(CURRENT_READ)
  if current is None or current["mnemonic"]!="mrs" or "sp_el0" not in current["op_str"]:
   raise ValueError("Known source current task pointer operation absent")
@@ -71,6 +85,7 @@ def main():
   "stock_boot_sha256":BOOT_SHA,"extracted_kernel_sha256":KERNEL_SHA,
   "orig_signed_functions":functions,
   "signed_original_proxy_rollback_direct_call_validated":True,
+  "byte_verified_rollback_predicates":{hex(a):m+" "+o for a,(m,o) in branch_assertions.items()},
   "signed_original_remove_waiter_current_use_validated":True,
   "current_task_pi_blocked_on_clear_machine_code":"str xzr, [x20, #0x990]",
   "relevant_offline_assessment":"The original code has the proxy-lock -> remove_waiter call and removes current task's PI state; exact triggering conditions not measured on the phone.",
@@ -84,5 +99,6 @@ def main():
   print("===== ORIG_FUNCTION",n,fn["vaddr"])
   for i in fn["instructions"]:
    print(i["addr"],i["mnemonic"],i["op_str"])
+ print("EXACT_ROLLBACK_PREDICATES_ASSERTED",len(branch_assertions))
  print("VULNERABLE_SOURCE_PATTERN_ASSERTED",True)
 if __name__=="__main__":main()
