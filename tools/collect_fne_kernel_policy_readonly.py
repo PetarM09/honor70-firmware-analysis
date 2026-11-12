@@ -9,7 +9,6 @@ import argparse,datetime,json,re,subprocess
 from pathlib import Path
 
 PROPERTIES=("ro.product.model","ro.build.version.release","ro.build.version.security_patch","ro.build.fingerprint","ro.boot.verifiedbootstate","ro.boot.flash.locked","ro.boot.vbmeta.device_state")
-PATHS=("/proc/config.gz","/sys/kernel/config","/proc/sys/kernel/osrelease")
 LIMIT=16384
 def execute(*args,timeout=12):
  try:
@@ -43,7 +42,7 @@ def gather():
  report["observations"]["kernel_release"]=read_shell("uname -r")["text"].strip()
  for label,cmd in {
   "shell_context":"id -Z 2>/dev/null",
-  "shell_proc_status":"grep -E '^(Name|State|Uid|Gid|NoNewPrivs|Seccomp|Seccomp_filters|CapPrm|CapEff|CapBnd|TracerPid):' /proc/self/status 2>/dev/null",
+  "shell_proc_status":"grep -E '^(Name|State|Uid|Gid|NoNewPrivs|Seccomp|Seccomp_filters|CapPrm|CapEff|CapBnd|TracerPid):' /proc/$/status 2>/dev/null",
   "kernel_config_readability":"if test -r /proc/config.gz; then echo readable; else echo unavailable; fi",
   "selinux_enforcing":"cat /sys/fs/selinux/enforce 2>/dev/null",
  }.items():
@@ -54,7 +53,7 @@ def gather():
   else:
    report["observations"][label]=val if r["ok"] else None
  report["limitations"]=[
-  "ADB shell context and seccomp state do NOT establish application permissions.",
+  "The observed shell process context and seccomp state do NOT establish application permissions.",
   "This tool does not exercise PI futex operations or try to trigger CVE-2026-43499.",
   "This tool does not establish root, kernel read/write or bootloader unlock.",
   "If multiple adb devices are connected, select one with ANDROID_SERIAL before running."
