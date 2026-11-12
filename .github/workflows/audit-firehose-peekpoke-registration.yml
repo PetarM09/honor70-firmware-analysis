@@ -1,0 +1,45 @@
+name: HONOR70 Firehose Peek Poke Registration vs Diagnostic Text
+on:
+  push:
+    paths:
+      - 'tools/audit_firehose_peekpoke_registration.py'
+      - '.github/workflows/audit-firehose-peekpoke-registration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact original signed Board programmer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input raw report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir input
+          unzip -p input/selected_bootchain.zip bootloaderimage/prog_firehose_${{ matrix.loader }}.elf > raw/Firehose.elf
+      - name: Compare actual command registration strings and diagnostic references
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'pyelftools>=0.31,<0.34'
+          python3 -m py_compile tools/audit_firehose_peekpoke_registration.py
+          python3 tools/audit_firehose_peekpoke_registration.py \
+            --loader "${{ matrix.loader }}" \
+            --input raw/Firehose.elf \
+            --out "report/FIREHOSE_${{ matrix.loader }}_PEEKPOKE_REGISTRATION.json"
+          python3 -m json.tool report/*.json > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_PEEK_POKE_XML_EVIDENCE"
+          path: report/*.json
+          retention-days: 14
