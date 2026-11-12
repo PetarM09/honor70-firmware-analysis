@@ -17,6 +17,15 @@ CHECKS=[
  ('rt_mutex_init_waiter','0xffffffc01037db04','str','x0, [x0]'),
  ('rt_mutex_init_waiter','0xffffffc01037db08','str','x8, [x0, #0x18]'),
  ('rt_mutex_init_waiter','0xffffffc01037db0c','str','xzr, [x0, #0x30]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037dfe0','mov','x19, x0'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037dfec','mov','x20, x2'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037dff0','mov','x22, x1'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037dff8','stp','x20, x19, [x22, #0x30]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037dffc','ldr','w8, [x20, #0x11c]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037e004','str','w8, [x22, #0x40]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037e008','ldr','x10, [x20, #0x488]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037e00c','str','x10, [x22, #0x48]'),
+ ('task_blocks_on_rt_mutex','0xffffffc01037e0c0','str','x22, [x20, #0x990]'),
  ('rt_mutex_adjust_prio_chain','0xffffffc01037d398','ldr','x25, [x19, #0x990]'),
  ('rt_mutex_adjust_prio_chain','0xffffffc01037d3b0','ldr','x8, [x25, #0x38]'),
  ('rt_mutex_adjust_prio_chain','0xffffffc01037d3f0','ldr','w9, [x25, #0x40]'),
@@ -25,10 +34,10 @@ CHECKS=[
  ('remove_waiter','0xffffffc01037e3cc','str','xzr, [x20, #0x990]'),
 ]
 FIELDS={
- 'rt_mutex_waiter.task':{'offset':'0x30','evidence':'source declaration plus exact rt_mutex_init_waiter null initialization'},
- 'rt_mutex_waiter.lock':{'offset':'0x38','evidence':'source declaration and exact current pi_blocked_on waiter pointer dereference'},
- 'rt_mutex_waiter.prio':{'offset':'0x40','evidence':'source declaration and exact waiter priority dereference'},
- 'rt_mutex_waiter.deadline':{'offset':'0x48','evidence':'source declaration and exact waiter deadline dereference'},
+ 'rt_mutex_waiter.task':{'offset':'0x30','evidence':'direct original task_blocks_on_rt_mutex stp of task and lock, plus init nullification'},
+ 'rt_mutex_waiter.lock':{'offset':'0x38','evidence':'direct original task_blocks_on_rt_mutex stp and lock dereference'},
+ 'rt_mutex_waiter.prio':{'offset':'0x40','evidence':'direct original task_blocks_on_rt_mutex priority assignment and readback'},
+ 'rt_mutex_waiter.deadline':{'offset':'0x48','evidence':'direct original task_blocks_on_rt_mutex deadline assignment and readback'},
 }
 
 def verify(binary,waiter_source,rtmutex_source):
@@ -52,6 +61,9 @@ def verify(binary,waiter_source,rtmutex_source):
  init=re.search(r'void\s+rt_mutex_init_waiter\s*\([^)]*\)\s*\{(.+?)\n\}',source,re.S)
  if not init or 'waiter->task = NULL;' not in init.group(1):
   raise ValueError('Source waiter task initialization not shown')
+ for original in ('waiter->task = task;', 'waiter->lock = lock;',
+                  'waiter->prio = task->prio;', 'waiter->deadline = task->dl.deadline;'):
+  if original not in source:raise ValueError('HONOR GPL task_blocks_on assignment missing: '+original)
  functions=binary.get('functions',{})
  for fn,addr,mnemonic,operand in CHECKS:
   f=functions.get(fn)
