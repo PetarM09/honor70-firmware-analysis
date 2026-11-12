@@ -1,0 +1,51 @@
+name: HONOR70 Extract Original Firehose Poke Peek Secure Boot Conditions
+on:
+  push:
+    paths:
+      - '.github/workflows/extract-firehose-peekpoke-guard-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - name: Restore decompiled original signed Firehose evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence out
+          gh run download 43136649865 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FIREHOSE_${{ matrix.loader }}_SECURITY_GHIDRA --dir evidence
+          test -s evidence/HONOR70_FIREHOSE_PEEK_POKE_SECUREBOOT_GUARD_SOURCE.txt
+      - name: Examine actual memory routines, secure boot predicate and branch context
+        run: |
+          python3 - <<'PY'
+          import re,hashlib
+          from pathlib import Path
+          path=Path('evidence/HONOR70_FIREHOSE_PEEK_POKE_SECUREBOOT_GUARD_SOURCE.txt')
+          s=path.read_text(errors='replace')
+          print('ORIGINAL_GHIDRA_SHA256',hashlib.sha256(path.read_bytes()).hexdigest())
+          sections=re.split(r'(?=^===== SECURITY_GATE )',s,flags=re.M)
+          targets=['1482011c','148201e4','14824298','14824b78','14824eec',
+                   '14824f24','14825120','14825114','1482553c','148255fc',
+                   '148256bc','14825800','14825908','148258fc']
+          for target in targets:
+              body=next((x for x in sections if x.startswith('===== SECURITY_GATE '+target)),None)
+              if body is None:continue
+              Path('out/'+target+'.txt').write_text(body)
+              print('===== VERIFIED_ORIGINAL_FUNC',target,'BYTES',len(body))
+              print(body[:22000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_PEEK_POKE_SOURCE_EXTRACT"
+          path: out/*.txt
+          retention-days: 14
