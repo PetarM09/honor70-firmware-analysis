@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [**Retail vs Board KM41 + XBL `0x203` result verification (2026-11-12)**](research/2026-11-12-keymaster-board-eea-identical-xbl-203-reply-not-ignored.md) | All four original signed Keymaster secure handlers — `0x202`, `0x203`, fuse gate and milestone — have **matching normalized decompiled logic** in EEA and Board. In original retail XBL, **`0x203` QSEE transport and reply must both succeed**; otherwise it returns EFI `0x50`. Original ABL propagates nonzero setter status. Does **not** establish why the prior live phone wipe remained `LOCKED`. |
 | [**Original signed DDR/Lite EDL XML command registry (2026-11-12)**](research/2026-11-12-signed-firehose-15-command-xml-dispatch-no-peekpoke.md) | **15 original XML handlers proven**: `program`, `read`, `patch`, `erase`, `firmwarewrite`, `fixgpt`, etc.; **no `peek` or `poke` handler** in the callback table. Actual `firmwarewrite` updates storage-device firmware and `fixgpt` repairs UFS LUN partition tables; **neither directly writes Keymaster lock state**. Both original binaries independently decompiled. **No permanent unlock**. |
 | [**EDL WRITE feasibility / signed Firehose RPMB study (2026-11-12)**](research/2026-11-12-edl-write-firehose-rpmb-options-complete-audit.md) | Original DDR/Lite Firehose SHA256 verified; `UFS RPMB ReadWrite Size` is **storage descriptor logging**, **not RPMB authenticated WRITE**. Firehose XML `patch` updates ordinary UFS sectors; `peek/poke` contain Secure Boot denial strings without proven runtime bypass. All realistic EDL/GPT/OEMINFO/ABL/RPMB write paths ranked with explicit prerequisites. **No unlocked state or validated unlock exploit.** |
 | [GPT/NO_AVB public unlock PoC — HONOR signed AVB chain cross-check (2026-11-12)](research/2026-11-12-noavb-fw-ufsdev-after-milestone-not-boot-bypass.md) | **New source-confirmed negative**: the stock ABL `NoAVBLoad_fw_ufsdev` helper is for **UFS device firmware**, reached **after** a VerifiedBoot milestone call, not evidence of the Redmi 14R's GPT-dependent `NO_AVB` Android boot path. Exact signed-source check [passed](../../actions/runs/43133171655). GPT renaming has no validated unlock effect on HONOR 70. |
@@ -34,6 +35,9 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Full EEA vs Board protected KM41 handler parity, four functions](../../actions/runs/43141115024)
+- [Retail VerifiedBootDxe `0x203` protected reply and transport guard](../../actions/runs/43141651329)
+- [Retail ABL PE machine instructions + XBL `0x203` end-to-end error status](../../actions/runs/43141819717)
 - [Exact signed DDR/Lite registered firmwarewrite/fixgpt code (both successful)](../../actions/runs/43138463218)
 - [Signed executable XML callback handler table, 15 commands, no peek/poke](../../actions/runs/43137871278)
 - [Original ELF standalone command token sanity checks (both successful)](../../actions/runs/43137433674)
