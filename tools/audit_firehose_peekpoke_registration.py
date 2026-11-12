@@ -57,6 +57,15 @@ def main():
           ("label_prefix",("name="+word).encode()),
         ):
             matched[label]=[hex(x) for x in find_all(val)[:20]]
+        matched["terminated_candidate_context"]=[
+            {"offset":hex(pos),
+             "previous_byte":hex(raw[pos-1]) if pos else None,
+             "has_nul_boundary":pos==0 or raw[pos-1]==0,
+             "printable_prefix":raw[max(0,pos-58):pos].decode("ascii","replace"),
+             "printable_suffix":raw[pos:pos+len(word)+2].decode("ascii","replace")}
+            for pos in find_all(word.encode()+b"\0")[:20]]
+        matched["strict_nul_delimited_literal_starts"]=[
+            row["offset"] for row in matched["terminated_candidate_context"] if row["has_nul_boundary"]]
         xml[word]=matched
     markers=[]
     for marker in DIAGNOSTICS:
