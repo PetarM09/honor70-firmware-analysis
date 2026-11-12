@@ -1,0 +1,50 @@
+name: HONOR70 Verify Firehose RPMB Marker is Storage Info Diagnostics
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-firehose-rpmb-marker-semantic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - name: Restore source-pinned signed programmer Ghidra report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input output
+          gh run download 43134581030 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FIREHOSE_${{ matrix.loader }}_SECURITY_GHIDRA --dir input
+          test -s input/HONOR70_FIREHOSE_SECUREBOOT_PEEK_POKE_RPMB.txt
+      - name: Verify storage info print function contains only report formatting
+        run: |
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          s=Path('input/HONOR70_FIREHOSE_SECUREBOOT_PEEK_POKE_RPMB.txt').read_text(errors='replace')
+          print('SOURCE_GHIDRA_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          targets=('1482bc30','14825db0','1481fccc')
+          for a in targets:
+              start=s.find('===== MARKER_OWNER '+a)
+              if start<0:raise RuntimeError('Missing original Ghidra owner '+a)
+              end=s.find('===== MARKER_OWNER ',start+20)
+              chunk=s[start:end if end>=0 else None]
+              Path('output/'+a+'.txt').write_text(chunk)
+              print('===== SIGNED_ORIGINAL_FUNCTION',a,'TEXT_CHARS',len(chunk))
+              print(chunk[:26000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_RPMB_GETSTORAGEINFO_CALLER"
+          path: output/*.txt
+          retention-days: 14
