@@ -56,6 +56,28 @@ The independent assertion report records exact Ghidra source-text positions:
 
 Order of decompiler text is not an execution trace. Here the **same normal C control-flow branch** contains a direct milestone protocol call **before** the `NoAVBLoad_fw_ufsdev` section. Actual on-device milestone success and hardware fuse state were not measured.
 
+## Additional independent check: the caller's mode byte is A/B-slot support, not an AVB bypass flag
+
+Original signed ABL entry `FUN_000014D0`, fully decompiled in [run 43132587072](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43132587072), directly obtains:
+
+```c
+bVar2 = FUN_0003e268(L"boot");
+if (bVar2 != 0) {
+    // log: "Multi Slot boot is supported"
+    FUN_0003fe20();
+}
+...
+local_520 = bVar2;
+FUN_00001dd4(&local_520);
+lVar5 = FUN_00003144(&local_520);
+```
+
+Therefore the **entry caller's first byte** to `FUN_00003144` originates from the `boot` partition's **A/B multi-slot support** decision. It is **not evidence** that `*param_1` means `Is_VERIFIED_BOOT_2()`. This avoids misinterpreting the source-level branch `if (*param_1 == 0)` as an AVB2/NO_AVB security switch.
+
+The same boot path calls `FUN_00003144` when **not entering Fastboot**, and the decompiled function performs AVB2 operations and then the VerifiedBoot milestone call prior to the separately named UFS updater.
+
+This still does not formally prove there is no other GPT-sensitive condition within the complete boot chain, but it **refutes two independent tempting shortcuts**: (1) treating `NoAVBLoad_fw_ufsdev` as the normal Android NO_AVB path and (2) treating the caller's first flag as a runtime AVB selector.
+
 ## What the signed source string search does and does not establish
 
 The exact EEA ABL binary contains ASCII strings `NoAVBLoad_fw_ufsdev` (three mentions), `LoadImageAndAuthVB2`, and `vbmeta`, but exact `Is_VERIFIED_BOOT_2`, `VERIFIED_BOOT_ENABLED`, or `vbmeta_a` literals were **not found** in this binary's ASCII or UTF-16LE text by the signed-source scanner. This is a **weak negative**, not proof that no dynamically synthesized GPT-name check exists anywhere in the compiled program.
