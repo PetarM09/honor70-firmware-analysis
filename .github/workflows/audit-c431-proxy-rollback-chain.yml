@@ -1,0 +1,57 @@
+name: HONOR70 Exact C431 GhostLock Proxy Rollback Chain Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_c431_proxy_rollback_chain.py'
+      - 'tools/test_audit_c431_proxy_rollback_chain.py'
+      - '.github/workflows/audit-c431-proxy-rollback-chain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run synthetic source and original-code guard tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_c431_proxy_rollback_chain.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_c431_proxy_rollback_chain.py' -v
+      - name: Retrieve original SHA-verified C431 code and HONOR Fennie GPL sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/arm64 inputs/gpl report
+          gh run download 43228734050 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_EXACT_C431_ARM64_RT_MUTEX_ABI_SITES \
+            --dir inputs/arm64
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES \
+            --dir inputs/gpl
+          echo '71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106  inputs/gpl/FENNIE/kernel_futex_c.txt' | sha256sum -c
+          echo '70f96efb8e45b97b977957e3ecb93a4e63fcaf4e2b7d915d20316f3c4e6263b9  inputs/gpl/FENNIE/kernel_rtmutex_c.txt' | sha256sum -c
+      - name: Audit actual source-linked original ARM64 proxy rollback chain
+        run: |
+          set -euo pipefail
+          python3 tools/audit_c431_proxy_rollback_chain.py \
+            --arm64-report inputs/arm64/C431_ORIGINAL_RT_MUTEX_MEMORY_INSTRUCTIONS.json \
+            --fennie-futex inputs/gpl/FENNIE/kernel_futex_c.txt \
+            --fennie-rtmutex inputs/gpl/FENNIE/kernel_rtmutex_c.txt \
+            --out report/C431_ORIGINAL_GHOSTLOCK_PROXY_ROLLBACK_CHAIN.json \
+            | tee report/AUDIT_SUMMARY.txt
+          python3 -m json.tool report/C431_ORIGINAL_GHOSTLOCK_PROXY_ROLLBACK_CHAIN.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_ORIGINAL_GHOSTLOCK_PROXY_CHAIN
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
