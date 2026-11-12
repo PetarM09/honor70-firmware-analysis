@@ -1,0 +1,44 @@
+name: HONOR70 Verify Board Firehose Actual XML Handler Table
+on:
+  push:
+    paths:
+      - 'tools/inspect_firehose_xml_handler_table.py'
+      - '.github/workflows/verify-firehose-xml-handler-table.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download original SHA-verified Board programmer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src raw report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir src
+          unzip -p src/selected_bootchain.zip bootloaderimage/prog_firehose_${{ matrix.loader }}.elf > raw/firehose.elf
+      - name: Verify original XML callback pointer dispatch table
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'pyelftools>=0.31,<0.34'
+          python3 -m py_compile tools/inspect_firehose_xml_handler_table.py
+          python3 tools/inspect_firehose_xml_handler_table.py \
+            --loader "${{ matrix.loader }}" --input raw/firehose.elf \
+            --out "report/FIREHOSE_${{ matrix.loader }}_XML_CALLBACKS.json"
+          python3 -m json.tool report/*.json > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_XML_FUNCTION_REGISTRY"
+          path: report/*.json
+          retention-days: 14
