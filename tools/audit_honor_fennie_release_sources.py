@@ -88,6 +88,21 @@ class Auditor:
         else:
             entries = ((e.name, e.size, lambda e=e: archive.extractfile(e))
                        for e in archive if e.isfile())
+        # Prioritize core source and nested kernel archives ahead of large
+        # vendor defconfig/header collections, avoiding biased sample caps.
+        entries = list(entries)
+        def priority(item):
+            n = item[0].lower()
+            if n.endswith(("rtmutex.c", "futex.c", "rtmutex.h")):
+                return 0
+            if NESTED.search(n) and any(s in n for s in ("kernel", "source", "fennie", "android")):
+                return 1
+            if NESTED.search(n):
+                return 2
+            if "defconfig" in n:
+                return 3
+            return 4
+        entries.sort(key=priority)
         for name, size, opener in entries:
             self.stats["entries_examined"] += 1
             canonical = name.replace("\\", "/").strip("/")
