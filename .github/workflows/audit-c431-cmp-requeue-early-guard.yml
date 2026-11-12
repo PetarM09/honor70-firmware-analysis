@@ -1,0 +1,49 @@
+name: HONOR70 C431 CMP_REQUEUE_PI Reject-Before-Queue Audit
+
+on:
+  push:
+    paths:
+      - 'tools/verify_c431_cmp_requeue_early_guard.py'
+      - 'tools/test_verify_c431_cmp_requeue_early_guard.py'
+      - '.github/workflows/audit-c431-cmp-requeue-early-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check strict early-guard regression tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_c431_cmp_requeue_early_guard.py
+          python3 -m unittest discover -s tools -p 'test_verify_c431_cmp_requeue_early_guard.py' -v
+      - name: Download previously SHA-verified original C431 ARM64 disassembly and Fennie source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/arm64 evidence/fennie report
+          gh run download 43228734050 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_EXACT_C431_ARM64_RT_MUTEX_ABI_SITES --dir evidence/arm64
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES --dir evidence/fennie
+          echo '71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106  evidence/fennie/FENNIE/kernel_futex_c.txt' | sha256sum -c
+      - name: Prove matching C431 early reject before futex key/queue access
+        run: |
+          set -euo pipefail
+          python3 tools/verify_c431_cmp_requeue_early_guard.py \
+            --original-arm64 evidence/arm64/C431_ORIGINAL_RT_MUTEX_MEMORY_INSTRUCTIONS.json \
+            --fennie-futex evidence/fennie/FENNIE/kernel_futex_c.txt \
+            --out report/C431_CMP_REQUEUE_PI_INVALID_EQUAL_ADDR_EARLY_GUARD.json
+          python3 -m json.tool report/C431_CMP_REQUEUE_PI_INVALID_EQUAL_ADDR_EARLY_GUARD.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_C431_CMP_REQUEUE_PI_EARLY_REJECTION_EVIDENCE
+          path: report/
+          retention-days: 30
