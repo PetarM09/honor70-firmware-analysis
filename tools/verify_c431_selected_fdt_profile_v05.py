@@ -45,11 +45,10 @@ def verify(old,new,observed,source):
         uploaded.get("dtbo_a_img",{}).get("sha256") !=
         ref.get("dtbo_partition",{}).get("image_sha256")):
         raise ValueError("Wrong uploaded original images")
-    base=source.get("vendor_boot",{}).get("dtb_entries",[])
-    overlays=source.get("dtbo",{}).get("entries",[])
-    if len(base)<=13 or len(overlays)<=18 or len(overlays)<=25:
-        raise ValueError("Missing declared FDT index")
-    base=base[13]; overlay=overlays[18]; other=overlays[25]
+    selected=source.get("selected_fdt_entries",{})
+    base=selected.get("base_dtb_13",{})
+    overlay=selected.get("overlay_dtbo_18",{})
+    other=selected.get("overlay_dtbo_25",{})
     b=selection.get("selected_base_dtb_from_uploaded_vendor_boot",{})
     o=selection.get("selected_overlay_from_uploaded_dtbo",{})
     if (base.get("index")!=13 or
