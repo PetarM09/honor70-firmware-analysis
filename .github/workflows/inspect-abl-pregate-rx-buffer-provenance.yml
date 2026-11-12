@@ -1,0 +1,50 @@
+name: HONOR70 Inspect Full PreGate RX Buffer Allocation Trace
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-abl-pregate-rx-buffer-provenance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch signed EEA ABL pre-gate source report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh run download 43130106309 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_ABL_FASTBOOT_PREGATE_64BYTE_BUFFER_BOUNDS --dir src
+          test -s src/HONOR70_FASTBOOT_PREGATE_BUFFER_BOUNDS.txt
+      - name: Expand exact receive, length, parser and callback functions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          s=Path('src/HONOR70_FASTBOOT_PREGATE_BUFFER_BOUNDS.txt').read_text(errors='replace')
+          print('DECOMPILER_EVIDENCE_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          for a in ['00022c7c','00022d24','00022d38','00022ef4',
+                    '00022a64','00024364','00027ab0','00027d30',
+                    '00027cd4','00027f7c','00027e48','0002439c',
+                    '00021d00']:
+            h='===== BOUNDS_TARGET '+a+' ====='
+            i=s.find(h)
+            if i<0:
+              print('MISSING',a)
+              continue
+            j=s.find('===== BOUNDS_TARGET ',i+len(h))
+            body=s[i:j if j>=0 else None]
+            Path('report/'+a+'.txt').write_text(body)
+            print('===== TARGET',a,'BYTES',len(body))
+            print(body[:26000] if a in ['00022c7c','00022a64','00024364','00027ab0','00027d30'] else body[:14000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_PREGATE_RX_BUFFER_SOURCE
+          path: report/*.txt
+          retention-days: 14
