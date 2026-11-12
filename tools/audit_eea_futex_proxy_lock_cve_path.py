@@ -67,15 +67,22 @@ def main():
     size=min(2048,max(128,following-addr))
     ins=list(md.disasm(read_code(addr,size),addr))
     entries=[]
+    jumps=[]
     for x in ins:
-     if x.mnemonic=="bl" and len(x.operands) and x.operands[0].type==ARM64_OP_IMM:
-      entries.append({"from":hex(x.address),"target":hex(x.operands[0].imm)})
+     if (x.mnemonic=="bl" or x.mnemonic=="b" or x.mnemonic.startswith("b.")) and len(x.operands) and x.operands[0].type==ARM64_OP_IMM:
+      # Capstone's immediate on the EEA's 0xffffffc0... VAs can be
+      # represented as signed; its ARM64 op_str retains the 64-bit VA.
+      target=int(x.op_str.strip().lstrip("#"),0)
+      record={"from":hex(x.address),"target":hex(target),"kind":x.mnemonic}
+      if x.mnemonic=="bl":entries.append(record)
+      else:jumps.append(record)
     dis[row["name"]]={
      "entry":hex(addr),
      "estimated_code_bytes":size,
      "decoded_count":len(ins),
      "sp_el0_reads":[hex(x.address) for x in ins if x.mnemonic=="mrs" and "sp_el0" in x.op_str],
      "bl_targets":entries[:120],
+     "branch_targets":jumps[:120],
      "first_20":[f"{x.address:#x} {x.mnemonic} {x.op_str}" for x in ins[:20]]
     }
   remove_entries=[v for k,v in dis.items() if k=="remove_waiter"]
@@ -85,7 +92,7 @@ def main():
   caller_hits=[]
   for name,obj in dis.items():
    if name.startswith("remove_waiter"):continue
-   sites=[c for c in obj["bl_targets"] if int(c["target"],16)==remove_addr]
+   sites=[c for c in obj["bl_targets"]+obj["branch_targets"] if int(c["target"],16)==remove_addr]
    if sites:caller_hits.append({"function":name,"call_sites":sites})
   report={
    "source":"Signed original C431 8.0.0.290 HONOR FNE-NX9 kernel read-only ARM64",
@@ -110,6 +117,7 @@ def main():
    print("SYMBOLS_MATCH",pat,len(rows),[(x["name"],hex(x["address"])) for x in rows[:5]])
   for name,entry in dis.items():
    print("SOURCE_CODE_ENTRY",name,entry["entry"],"CURRENT_MRS",entry["sp_el0_reads"],
-         "CALLS",[(x["from"],x["target"]) for x in entry["bl_targets"][:25]])
+         "CALLS",[(x["from"],x["target"]) for x in entry["bl_targets"][:25]],
+         "BRANCHES",[(x["from"],x["target"]) for x in entry["branch_targets"][:40]])
   print("KNOWN_DIRECT_CALLS_TO_REMOVE_WAITER",json.dumps(caller_hits))
 if __name__=="__main__":main()
