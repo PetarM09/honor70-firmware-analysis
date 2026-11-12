@@ -34,7 +34,7 @@ def val(src,key):
     group=parts[0]
     m=re.search(r"(?ms)^\s*"+re.escape(group)+r"\s*\{(?P<block>.*?)^\s*\}",src)
     if not m:return None
-    return val(m.group("block"),parts[1])
+    return val(m.group("block"),".".join(parts[1:]))
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
