@@ -31,6 +31,9 @@ MAX_FILE = 4 * 1024 * 1024
 FENNIE_SHA = {
     "kernel/futex.c": "71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106",
     "kernel/locking/rtmutex.c": "70f96efb8e45b97b977957e3ecb93a4e63fcaf4e2b7d915d20316f3c4e6263b9",
+    "include/linux/sched.h": "9f93a2b3c26269a749db7ca74ac184812249be60280012cd3e7d43ac7bc3f024",
+    "kernel/locking/rtmutex_common.h": "c79353d84625e4d352be7d96193cf162fba7857a85171540996f499679ea3d08",
+    "Makefile": "b86bd5e75fc256b870d9682d050dc877bbf438f52fe94e7348bdbbe6fa685308",
 }
 FNS = (
     ("kernel/futex.c", "futex_requeue"),
@@ -94,7 +97,7 @@ def version_from_makefile(raw):
     data = raw.decode("utf-8", "replace")
     options = {}
     for key in ("VERSION", "PATCHLEVEL", "SUBLEVEL", "EXTRAVERSION", "NAME"):
-        m = re.search(r"(?m)^" + re.escape(key) + r"\s*=\s*(.*)$", data)
+        m = re.search(r"(?m)^" + re.escape(key) + r"[ \t]*=[ \t]*([^\r\n]*)", data)
         options[key] = m.group(1).strip() if m else None
     return options
 
@@ -190,6 +193,18 @@ def inspect(chosen, fennie):
             "honor_has_proxy_lock_call": (
                 "rt_mutex_start_proxy_lock(" in ref_body if ref_body else None),
         }
+    if "include/linux/sched.h" in chosen and "include/linux/sched.h" in fennie:
+        generic_sched = chosen["include/linux/sched.h"]["data"]
+        honor_sched = fennie["include/linux/sched.h"]
+        values["oem_scheduler_layout_warnings"] = {
+            "honor_has_ANDROID_KABI_RESERVE": b"ANDROID_KABI_RESERVE" in honor_sched,
+            "generic_has_ANDROID_KABI_RESERVE": b"ANDROID_KABI_RESERVE" in generic_sched,
+            "honor_has_CONFIG_HN_VIP_THREAD": b"CONFIG_HN_VIP_THREAD" in honor_sched,
+            "generic_has_CONFIG_HN_VIP_THREAD": b"CONFIG_HN_VIP_THREAD" in generic_sched,
+            "honor_has_CONFIG_HONOR_SCHED_VIP": b"CONFIG_HONOR_SCHED_VIP" in honor_sched,
+            "generic_has_CONFIG_HONOR_SCHED_VIP": b"CONFIG_HONOR_SCHED_VIP" in generic_sched,
+            "unmodified_struct_task_layout_usable_as_C431_ABI": False,
+        }
     for path, ref in fennie.items():
         if path in chosen:
             values.setdefault("fennie_comparison", {})[path] = compare_source(
@@ -201,15 +216,25 @@ def main():
     p.add_argument("--archive", type=Path, required=True)
     p.add_argument("--fennie-futex", type=Path, required=True)
     p.add_argument("--fennie-rtmutex", type=Path, required=True)
+    p.add_argument("--fennie-sched", type=Path)
+    p.add_argument("--fennie-rtmutex-common", type=Path)
+    p.add_argument("--fennie-makefile", type=Path)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--selected-output-dir", type=Path)
     a = p.parse_args()
     fennie = {
         "kernel/futex.c": a.fennie_futex.read_bytes(),
         "kernel/locking/rtmutex.c": a.fennie_rtmutex.read_bytes(),
+        **({"include/linux/sched.h": a.fennie_sched.read_bytes()}
+           if a.fennie_sched else {}),
+        **({"kernel/locking/rtmutex_common.h": a.fennie_rtmutex_common.read_bytes()}
+           if a.fennie_rtmutex_common else {}),
+        **({"Makefile": a.fennie_makefile.read_bytes()}
+           if a.fennie_makefile else {}),
     }
-    for path, expected in FENNIE_SHA.items():
-        if sha256(fennie[path]) != expected:
+    for path, content in fennie.items():
+        expected = FENNIE_SHA[path]
+        if sha256(content) != expected:
             raise SystemExit("SHA_MISMATCH_ON_ORIGINAL_HONOR_GPL_REFERENCE")
     chosen, count, skipped, ambiguities = collect_sources(a.archive)
     if "Makefile" not in chosen or "kernel/futex.c" not in chosen:
