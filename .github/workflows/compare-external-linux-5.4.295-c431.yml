@@ -1,0 +1,62 @@
+name: HONOR70 Compare External Linux 5.4.295 With Original C431
+
+on:
+  push:
+    paths:
+      - 'tools/inspect_external_linux_5_4_295_release.py'
+      - 'tools/test_inspect_external_linux_5_4_295_release.py'
+      - '.github/workflows/compare-external-linux-5.4.295-c431.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regression tests for safe source analysis
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/inspect_external_linux_5_4_295_release.py
+          python3 -m unittest discover -s tools \
+            -p 'test_inspect_external_linux_5_4_295_release.py' -v
+      - name: Download user-supplied Linux 5.4.295 source and trusted HONOR GPL reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/external inputs/fennie report
+          gh release download linux-5.4.295 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'linux-5.4.295.tar.xz' \
+            --dir inputs/external
+          test -s inputs/external/linux-5.4.295.tar.xz
+          file inputs/external/linux-5.4.295.tar.xz
+          sha256sum inputs/external/linux-5.4.295.tar.xz | tee report/EXTERNAL_ARCHIVE_SHA256.txt
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES \
+            --dir inputs/fennie
+          echo '71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106  inputs/fennie/FENNIE/kernel_futex_c.txt' | sha256sum -c
+          echo '70f96efb8e45b97b977957e3ecb93a4e63fcaf4e2b7d915d20316f3c4e6263b9  inputs/fennie/FENNIE/kernel_rtmutex_c.txt' | sha256sum -c
+      - name: Inspect upstream version, vendor modifications, function differences and struct declarations
+        run: |
+          set -euo pipefail
+          python3 tools/inspect_external_linux_5_4_295_release.py \
+            --archive inputs/external/linux-5.4.295.tar.xz \
+            --fennie-futex inputs/fennie/FENNIE/kernel_futex_c.txt \
+            --fennie-rtmutex inputs/fennie/FENNIE/kernel_rtmutex_c.txt \
+            --selected-output-dir report/selected-source \
+            --out report/LINUX_5_4_295_VS_HONOR_FNE_C431_SOURCE_COMPARISON.json \
+            | tee report/SOURCE_COMPARISON_SUMMARY.txt
+          python3 -m json.tool report/LINUX_5_4_295_VS_HONOR_FNE_C431_SOURCE_COMPARISON.json > /dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_EXTERNAL_LINUX_5_4_295_ORIGIN_COMPARISON
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
