@@ -47,6 +47,8 @@ jobs:
           rm /tmp/ghidra.zip
           echo "HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
       - name: Decompile original registered UFS program firmwarewrite fixgpt handlers
+        env:
+          HONOR_LOADER: ${{ matrix.loader }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/honor70_firehose_${{ matrix.loader }}
