@@ -29,10 +29,14 @@ def main():
  for addr,expected in POINTS.items():
   if dis.get(addr)!=expected:raise ValueError("Unexpected ARM64 machine code at "+addr+" actual "+str(dis.get(addr)))
  src=c.decode("utf8","replace")
- if not re.search(r"(?s)#define STRUCT_OFFSETS_5_4\\s*\\\\.*?task_pi_lock=0x96C",src):
-  raise ValueError("Original 5.4 FNE struct offset source changed")
- if ".task_pi_blocked_on=0x990" not in src:
-  raise ValueError("Original FNE struct blocked-on field changed")
+ kstart=src.find("#define STRUCT_OFFSETS_5_4")
+ kend=src.find("#define STRUCT_OFFSETS_6_6",kstart)
+ if kstart<0 or kend<kstart:raise ValueError("Missing expected signed upstream 5.4 struct section")
+ struct=src[kstart:kend]
+ if ".task_pi_lock=0x96C" not in struct:
+  raise ValueError("Original upstream 5.4 task pi lock offset not present")
+ if ".task_pi_blocked_on=0x990" not in struct:
+  raise ValueError("Original upstream 5.4 blocked-on field missing")
  result={
   "signed_exact_EEA_kernel_sha256":EXPECTED_KERNEL,
   "original_source_disasm_report_sha256":hashlib.sha256(b).hexdigest(),
