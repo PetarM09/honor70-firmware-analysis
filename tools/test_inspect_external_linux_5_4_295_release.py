@@ -21,6 +21,25 @@ class Tests(unittest.TestCase):
         self.assertEqual(version_from_makefile(
             b"VERSION = 5\nPATCHLEVEL = 4\nSUBLEVEL = 295\nNAME = Test\n")["SUBLEVEL"],
             "295")
+    def test_empty_extra_version_does_not_capture_next_line(self):
+        values=version_from_makefile(
+            b"VERSION = 5\nPATCHLEVEL = 4\nSUBLEVEL = 295\nEXTRAVERSION =\nNAME = Kleptomaniac Octopus\n")
+        self.assertEqual(values["EXTRAVERSION"],"")
+        self.assertEqual(values["NAME"],"Kleptomaniac Octopus")
+    def test_honor_scheduler_vendor_extensions_are_not_generic(self):
+        entries={
+            "Makefile":{"archive_path":"linux/Makefile","data":b"VERSION = 5\n"},
+            "include/linux/sched.h":{"archive_path":"linux/include/linux/sched.h",
+                                     "data":b"struct task_struct {};\n"}
+        }
+        reference={"include/linux/sched.h":
+            b"ANDROID_KABI_RESERVE(1);\n#ifdef CONFIG_HN_VIP_THREAD\n"
+            b"#endif\n#ifdef CONFIG_HONOR_SCHED_VIP\n#endif\n"}
+        result=inspect(entries,reference)
+        checks=result["oem_scheduler_layout_warnings"]
+        self.assertTrue(checks["honor_has_ANDROID_KABI_RESERVE"])
+        self.assertFalse(checks["generic_has_ANDROID_KABI_RESERVE"])
+        self.assertFalse(checks["unmodified_struct_task_layout_usable_as_C431_ABI"])
     def test_single_function_extraction(self):
         source="static void remove_waiter(struct x *a) {\n if (a) { current->pi_blocked_on = NULL; }\n}"
         result=extract_function(source,"remove_waiter")
