@@ -1,0 +1,70 @@
+name: HONOR70 Parallel Unlock Research — ABL XBL KM41
+
+on:
+  push:
+    paths:
+      - 'tools/parallel_unlock_research.py'
+      - '.github/workflows/parallel-unlock-research.yml'
+      - 'tools/audit_secure_state_write_prerequisite.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  independent-research:
+    name: "Research worker: ${{ matrix.lane }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [abl, xbl, km]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download only the original firmware evidence for this worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence report
+          case "${{ matrix.lane }}" in
+            abl)
+              gh run download 43124622604 --repo "$GITHUB_REPOSITORY" \
+                --name HONOR70_ABL_OEMINFO_LOCALSTATE_AND_WRITE_SHORTCUT --dir evidence
+              test -s evidence/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json
+              cp evidence/ABL_OEMINFO_0x82_LOCAL_STATE_UNLOCK_EQUALITY.json evidence/input.bin
+              ;;
+            xbl)
+              gh run download 42538078141 --repo "$GITHUB_REPOSITORY" \
+                --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir evidence
+              f="$(find evidence -type f -name 'VERIFIEDBOOT_DXE_GHIDRA.txt' -print -quit)"
+              test -n "$f"
+              cp "$f" evidence/input.bin
+              ;;
+            km)
+              gh run download 42540518094 --repo "$GITHUB_REPOSITORY" \
+                --name HONOR70_KM41_WRITE_FUSE_GUARD --dir evidence
+              f="$(find evidence -type f -name 'KM41_WRITE_MILESTONE_DECOMPILE.txt' -print -quit)"
+              test -n "$f"
+              cp "$f" evidence/input.bin
+              ;;
+            *) exit 2;;
+          esac
+          sha256sum evidence/input.bin
+      - name: Run independent signed-firmware assertions
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/parallel_unlock_research.py
+          python3 tools/parallel_unlock_research.py \
+            --lane "${{ matrix.lane }}" \
+            --input evidence/input.bin \
+            --output "report/${{ matrix.lane }}.json"
+          python3 -m json.tool "report/${{ matrix.lane }}.json" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_PARALLEL_UNLOCK_${{ matrix.lane }}"
+          path: "report/${{ matrix.lane }}.json"
+          retention-days: 30
