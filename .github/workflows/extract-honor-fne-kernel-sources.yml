@@ -1,0 +1,85 @@
+name: HONOR70 OEM Source - Matched Kernel Core Files
+
+on:
+  push:
+    paths:
+      - 'tools/extract_honor_gpl_core_sources.py'
+      - '.github/workflows/extract-honor-fne-kernel-sources.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fennie8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download checksum-verified exact Fennie MagicOS 8 source ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archive report
+          gh release download MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip' \
+            --dir archive
+          echo '0323a0381c0035ede14ef9827da0e7aecd0d836d83552f727ed7f7e5160d5672  archive/MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip' | sha256sum -c
+          unzip -p archive/MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip \
+            Code_Opensource.tar.gz > archive/FENNIE_Code_Opensource.tar.gz
+          sha256sum archive/FENNIE_Code_Opensource.tar.gz | tee report/FENNIE_INNER_TAR_SHA256.txt
+      - name: Extract and hash precise GPL kernel core sources
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/extract_honor_gpl_core_sources.py
+          python3 tools/extract_honor_gpl_core_sources.py \
+            --inner-tar archive/FENNIE_Code_Opensource.tar.gz \
+            --out report/FENNIE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_FENNIE_8_CORE_KERNEL_SOURCES
+          path: report/
+          retention-days: 30
+
+  an00_61:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RAR reader (no execution of source code)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unar
+      - name: Download verified MagicUI 6.1 FNE-AN00 reference archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archive/unpacked report
+          gh release download FNE-AN00_MagicUI6.1_Code_Opensource \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'FNE-AN00_MagicUI6.1_Code_Opensource.rar' \
+            --dir archive
+          echo '645f129c46b2e1b5ad17be29f0bc304448a3872004d70d4d1c2010ab41a869e7  archive/FNE-AN00_MagicUI6.1_Code_Opensource.rar' | sha256sum -c
+          unar -quiet -o archive/unpacked archive/FNE-AN00_MagicUI6.1_Code_Opensource.rar
+          find archive/unpacked -type f -name 'Code_Opensource.tar.gz' -print
+          inner="$(find archive/unpacked -type f -name 'Code_Opensource.tar.gz' -print -quit)"
+          test -n "$inner"
+          cp "$inner" archive/AN00_Code_Opensource.tar.gz
+          sha256sum archive/AN00_Code_Opensource.tar.gz | tee report/AN00_INNER_TAR_SHA256.txt
+      - name: Extract and hash reference kernel core sources
+        run: |
+          set -euo pipefail
+          python3 tools/extract_honor_gpl_core_sources.py \
+            --inner-tar archive/AN00_Code_Opensource.tar.gz \
+            --out report/AN00
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_FNE_AN00_61_CORE_KERNEL_SOURCES
+          path: report/
+          retention-days: 30
