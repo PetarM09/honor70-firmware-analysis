@@ -77,6 +77,20 @@ def main():
    owner=syms[i][1] if i>=0 else None
    if owner=="futex_requeue":
     reachable.append({"from":"futex_requeue","to":name,"call_site":hex(src)})
+ required_edges=[
+   ("futex_requeue","do_futex","0xffffffc0103c91a8"),
+   ("rt_mutex_start_proxy_lock","futex_requeue","0xffffffc0103cb3f8"),
+   ("remove_waiter","rt_mutex_start_proxy_lock","0xffffffc01037e300"),
+   ("remove_waiter","rt_mutex_cleanup_proxy_lock","0xffffffc01037e698")
+ ]
+ validated=[]
+ for target_name,caller_name,site in required_edges:
+  evidence=[x for x in inbound[target_name]
+    if x["site"]==site and x["inferred_caller"]==caller_name]
+  if len(evidence)!=1:
+   raise RuntimeError("Expected signed EEA kernel futex-proxy-call edge missing "+
+                      caller_name+" -> "+target_name+" @"+site)
+  validated.append({"caller":caller_name,"callee":target_name,"bl_source":site})
  result={
   "source":"Original signed FNE-NX9 8.0.0.290 kernel executable PT_LOAD whole-ELF ARM64 BL scan",
   "stock_boot_sha256":BOOT_SHA,
@@ -87,6 +101,7 @@ def main():
   "actual_direct_callers":inbound,
   "inferred_caller_of_proxy_lock":intermediary_names,
   "futex_requeue_to_proxy_immediate_caller_two_hop_sites":reachable,
+  "source_validated_futex_proxy_remove_waiter_direct_edges":validated,
   "exact_signed_proxy_lock_to_remove_waiter_call_confirmed":True,
   "exact_signed_remove_waiter_uses_current_sp_el0_confirmed_by_prior_disassembly":True,
   "exploitable_privilege_escalation_established":False,
@@ -105,5 +120,6 @@ def main():
   print("INBOUND_BL",name,len(items),items[:24])
  print("PROXY_LOCK_INTERMEDIARIES",intermediary_names)
  print("FUTEX_REQUEUE_IMMEDIATE_HELPER_CHAIN",reachable)
+ print("SOURCE_VALIDATED_DIRECT_FUTEX_PROXY_REMOVE_WAITER_EDGES",validated)
  print("VULNERABLE_ORIGINAL_PROXY_TO_REMOVE_WAITER_EDGE_VERIFIED")
 if __name__=="__main__":main()
