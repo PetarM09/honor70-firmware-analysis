@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "evidence_type": "owner_photographed_android_app_preflight",
+  "capture_date": "2026-11-12",
+  "profile_id": "honor70-fne-nx9-c431-8.0.0.290-5.4.295-ga2d8945339ca",
+  "profile_version": "0.1.0",
+  "source_android_app": "org.openhonor.fnepigate",
+  "app_version": "0.3-c431-profile-preflight",
+  "known_apk_sha256_from_ci": "fa380ae95155e92531940b6ea152d4b73f3fe4ddbcaa60620021818dac11f706",
+  "app_profile_sha256_from_ci": "0dd061b002413b4547733e433e080e523044ac349465e8758f3b6dfc65ac9979",
+  "observed": {
+    "model": "FNE-NX9",
+    "device": "HNFNE",
+    "uname_release": "5.4.295-qgki-ga2d8945339ca",
+    "android_sdk": 34,
+    "firmware_build_incremental": "8.0.0.290C431E4R3P1",
+    "kernel_phys_load": null,
+    "reported_outcome": "PROFILE_MODEL_KERNEL_ANDROID_MATCH",
+    "model_match": true,
+    "device_match": true,
+    "kernel_match": true,
+    "sdk_match": true
+  },
+  "evidence_limits": {
+    "owner_photo_not_uploaded_publicly": true,
+    "source": "user provided photo of FNE PI Gate v0.3 screen, transcription, not attested kernel measurement",
+    "region_suffix_seen_in_build_incremental": true,
+    "region_separately_attested": false,
+    "running_kernel_image_hash_measured": false,
+    "kernel_memory_offsets_live_verified": false,
+    "live_uaf_tested": false,
+    "root_observed": false,
+    "bootloader_unlocked": false,
+    "device_ops_performed_by_repository_commit": 0
+  },
+  "status": "live_identity_passed_only"
+}
