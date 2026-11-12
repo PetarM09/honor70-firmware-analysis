@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "method": "extracted from offline local SHA-verified analysis of uploaded vendor_boot_a.img and dtbo_a.img; not live partitions",
+  "source_files": {
+    "vendor_boot_a_img": {
+      "sha256": "ca0ef34c45c55e91bd8da2bf02a0c5d9f359feb5e5d7873ee2aab1f61d903f46",
+      "size": 100663296
+    },
+    "dtbo_a_img": {
+      "sha256": "ecb2e289d49b6e51f89c0e4a16233521bc87a38c16c36753faa8a4a2fddca328",
+      "size": 25165824
+    }
+  },
+  "selected_fdt_entries": {
+    "base_dtb_13": {
+      "index": 13,
+      "sha256": "bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9",
+      "model": [
+        "Qualcomm Technologies, Inc. Yupik SoC"
+      ],
+      "compatible": [
+        "qcom,yupik"
+      ],
+      "size": 493552,
+      "absolute_offset_hex": "0x27290df"
+    },
+    "overlay_dtbo_18": {
+      "index": 18,
+      "sha256": "c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc",
+      "model": [
+        "Honor Technologies, Inc. FNE-NX9-781-208"
+      ],
+      "compatible": [
+        "qcom,yupik-qrd",
+        "qcom,yupik",
+        "qcom,qrd"
+      ],
+      "size": 318053,
+      "absolute_offset_hex": "0x5726f6"
+    },
+    "overlay_dtbo_25": {
+      "index": 25,
+      "sha256": "9945c3106547e82fb18cb91c9d09c2cbcee9a7ace7445cc0209aabb3beeb33a4",
+      "model": [
+        "Honor Technologies, Inc. FNE-NX9-781-208"
+      ],
+      "size": 317925
+    }
+  },
+  "confidence": {
+    "uploaded_bytes_and_selected_FDT_digest_checked_locally": true,
+    "uploaded_file_active_on_device_byte_match": false,
+    "DTBO_selection_reported_by_Android_getprop": true,
+    "actual_live_merged_FDT_read": false
+  }
+}
