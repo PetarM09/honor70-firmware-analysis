@@ -17,6 +17,12 @@ ROLES = {
     "source_root_makefile": "/Code_Opensource/kernel/Makefile",
     "kernel_locking_kconfig": "/kernel/kernel/locking/Kconfig",
     "arch64_gki_defconfig": "/kernel/arch/arm64/configs/gki_defconfig",
+    "lahaina_honor_gki_config": "/arch/arm64/configs/vendor/lahaina_HONOR_gki.config",
+    "lahaina_honor_config": "/arch/arm64/configs/vendor/lahaina_HONOR.config",
+    "lahaina_qgki_config": "/arch/arm64/configs/vendor/lahaina_QGKI.config",
+    "lahaina_qgki_defconfig": "/arch/arm64/configs/vendor/lahaina-qgki_defconfig",
+    "lahaina_gki_defconfig": "/arch/arm64/configs/vendor/lahaina-gki_defconfig",
+    "merge_lahaina_defconfig": "/arch/arm64/configs/merge_lahaina_defconfig",
 }
 MAX_MEMBER = 8_000_000
 
