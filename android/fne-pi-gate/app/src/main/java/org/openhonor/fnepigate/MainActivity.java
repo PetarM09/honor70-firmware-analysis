@@ -18,6 +18,9 @@ import android.widget.TextView;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 /**
  * Non-exploit validation that ordinary Android apps can use uncontended
@@ -36,6 +39,7 @@ public final class MainActivity extends Activity {
     private TextView output;
     private Button runButton;
     private Button requeueButton;
+    private Button profileButton;
     private String report;
 
     @Override
@@ -48,7 +52,7 @@ public final class MainActivity extends Activity {
         layout.setPadding(p, p, p, p);
 
         TextView title = new TextView(this);
-        title.setText("HONOR 70 — PI-Futex Application Gate v0.2");
+        title.setText("HONOR 70 — C431 Profile Preflight v0.3");
         title.setTextSize(20);
         title.setGravity(Gravity.CENTER_HORIZONTAL);
         layout.addView(title);
@@ -67,6 +71,10 @@ public final class MainActivity extends Activity {
         requeueButton = new Button(this);
         requeueButton.setText("Proveri CMP_REQUEUE_PI rano odbijanje");
         layout.addView(requeueButton);
+
+        profileButton = new Button(this);
+        profileButton.setText("Proveri C431 profil bez root-a");
+        layout.addView(profileButton);
 
         Button copyButton = new Button(this);
         copyButton.setText("Kopiraj rezultat");
@@ -130,6 +138,13 @@ public final class MainActivity extends Activity {
             }, "fne-requeue-invalid-guard").start();
         });
 
+        profileButton.setOnClickListener(v -> {
+            report = "FNE_C431_PROFILE_PREFLIGHT_V03\n" + deviceDetails()
+                    + "\n" + checkBundledProfile()
+                    + "\nProvera ne izvršava UAF, requeue, root, EDL ni upis u kernel.";
+            output.setText(report);
+        });
+
         copyButton.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager)
                     getSystemService(Context.CLIPBOARD_SERVICE);
@@ -137,6 +152,64 @@ public final class MainActivity extends Activity {
                 clipboard.setPrimaryClip(ClipData.newPlainText("FNE PI gate result", report));
             }
         });
+    }
+
+    private String checkBundledProfile() {
+        try {
+            StringBuilder contents = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(getAssets().open("fne-c431-profile.json"),
+                            StandardCharsets.UTF_8))) {
+                for (String line; (line = reader.readLine()) != null;) {
+                    contents.append(line).append('\n');
+                }
+            }
+            JSONObject profile = new JSONObject(contents.toString());
+            JSONObject target = profile.getJSONObject("target");
+            JSONObject fields = profile.getJSONObject("unresolved_required_fields");
+            JSONObject checks = profile.getJSONObject("checks");
+            if (profile.getInt("schema_version") != 1
+                    || !profile.getString("status").equals("experimental_static_verified_non_executable")
+                    || !fields.isNull("kernel_phys_load")
+                    || !fields.isNull("reliable_dangling_waiter_lifetime")
+                    || checks.getBoolean("exploit_loader_enabled")
+                    || checks.getBoolean("active_uaf_trigger_enabled")
+                    || checks.getBoolean("kernel_memory_write_enabled")
+                    || checks.getBoolean("root_installation_enabled")) {
+                return "PROFILE_REJECTED: profil sadrzi nepotvrdjene ili aktivne operacije.";
+            }
+            String kernel = Os.uname().release;
+            String model = Build.MODEL;
+            String device = Build.DEVICE;
+            int sdk = Build.VERSION.SDK_INT;
+            boolean modelOk = model.equals(target.getString("model"));
+            boolean deviceOk = device.equals(target.getString("device"));
+            boolean kernelOk = kernel.equals(target.getString("kernel_uname_release"));
+            boolean sdkOk = sdk == target.getInt("android_sdk");
+            boolean all = modelOk && deviceOk && kernelOk && sdkOk;
+
+            return "Profile: " + profile.getString("profile_id")
+                    + "\nVersion: " + profile.getString("profile_version")
+                    + "\nModel: " + model + " (expected "
+                    + target.getString("model") + ") " + (modelOk ? "OK" : "MISMATCH")
+                    + "\nDevice: " + device + " (expected "
+                    + target.getString("device") + ") " + (deviceOk ? "OK" : "MISMATCH")
+                    + "\nKernel: " + kernel + " (expected "
+                    + target.getString("kernel_uname_release") + ") " + (kernelOk ? "OK" : "MISMATCH")
+                    + "\nAndroid SDK: " + sdk + " (expected "
+                    + target.getInt("android_sdk") + ") " + (sdkOk ? "OK" : "MISMATCH")
+                    + "\nFirmware build (runtime): " + Build.VERSION.INCREMENTAL
+                    + "\nProfile region label: " + target.getString("region")
+                    + " (NOT independently attested)"
+                    + "\nKernel Image SHA: from offline firmware, NOT checked against running kernel"
+                    + "\nUnresolved kernel_phys_load: null"
+                    + "\nOutcome: " + (all ? "PROFILE_MODEL_KERNEL_ANDROID_MATCH"
+                                                  : "PROFILE_MODEL_KERNEL_ANDROID_MISMATCH")
+                    + "\nThis is only a read-only identity preflight, NOT a GhostLock root test.";
+        } catch (Exception ex) {
+            return "PROFILE_PREFLIGHT_ERROR: " + ex.getClass().getSimpleName()
+                    + " " + String.valueOf(ex.getMessage());
+        }
     }
 
     private static String readFirstLine(String path) {
