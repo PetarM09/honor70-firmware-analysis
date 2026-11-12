@@ -1,0 +1,53 @@
+name: HONOR70 Verify Exact C431 Profile v0.3 Boot Header
+
+on:
+  push:
+    paths:
+      - 'tools/verify_exact_c431_profile_v03_boot_evidence.py'
+      - 'tools/test_verify_exact_c431_profile_v03_boot_evidence.py'
+      - 'profiles/fne-nx9-c431-8.0.0.290.profile-v0.3.json'
+      - '.github/workflows/verify-c431-profile-v03-boot-header.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 10 fail-closed regression checks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_exact_c431_profile_v03_boot_evidence.py
+          python3 -m unittest discover -s tools \
+            -p 'test_verify_exact_c431_profile_v03_boot_evidence.py' -v
+      - name: Download independently SHA-verified original C431 boot header evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs report
+          gh run download 43303005963 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_C431_SIGNED_BOOT_V3_ARM64_HEADER \
+            --dir inputs
+      - name: Validate original C431 profile v0.3 without guessing phys load
+        run: |
+          set -euo pipefail
+          python3 tools/verify_exact_c431_profile_v03_boot_evidence.py \
+            --old profiles/fne-nx9-c431-8.0.0.290.profile-v0.2.json \
+            --new profiles/fne-nx9-c431-8.0.0.290.profile-v0.3.json \
+            --evidence inputs/C431_ORIGINAL_BOOT_V3_IMAGE_HEADER_AND_DTB_EVIDENCE.json \
+            --out report/C431_PROFILE_V03_VERIFIED_BOOT_HEADER_EVIDENCE.json \
+            | tee report/SUMMARY.txt
+          python3 -m json.tool report/C431_PROFILE_V03_VERIFIED_BOOT_HEADER_EVIDENCE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_PROFILE_V03_BOOT_HEADER_VERIFIED
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
