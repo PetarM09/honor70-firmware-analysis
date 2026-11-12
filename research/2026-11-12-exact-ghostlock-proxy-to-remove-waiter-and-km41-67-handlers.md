@@ -62,7 +62,7 @@ There is also another inbound `BL` to `remove_waiter` from the signed `rt_mutex_
 
 The result **closes a prior uncertainty**: it is not merely a dormant uncalled function; the actual `do_futex → futex_requeue → rt_mutex_start_proxy_lock → remove_waiter` branch-call chain exists in the signed retail executable. The **runtime predicate** that leads into the vulnerable cancellation/rollback branch, and its reproducible unprivileged triggerability on this build, **have not been established**. No exploitability claim, kernel root or persistent unlock follows solely from an incoming branch.
 
-The first implementation of the whole-kernel workflow incorrectly invoked the older per-function audit and checked the wrong JSON filename; the corrected workflow succeeded as run 43146638395. A further source assertion of all four exact edges was committed to the scanner so future runs fail closed on any firmware/analysis drift.
+The first implementation of the whole-kernel workflow incorrectly invoked the older per-function audit and checked the wrong JSON filename; the corrected workflow succeeded as run 43146638395. **Independent repeat with hard assertions of all four exact original machine-code edges: [SUCCESS, run 43146924266](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43146924266).** The verifier now refuses missing, relocated or incorrectly-attributed edge sites; the expected four edges were all found. This verifies the source graph, **not** runtime exploitability.
 
 ## 2. ALL 67 original, registered Keymaster handlers inspected
 
