@@ -1,0 +1,43 @@
+name: HONOR70 Signed ABL AVB2 NOAVB Source Xrefs
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_avb_switch_xrefs.py'
+      - '.github/workflows/audit-abl-avb2-noavb-source-xrefs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original stock EEA ABL LinuxLoader by exact hash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence source report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir evidence
+          find evidence -type f -name '*.efi' -print0 | while IFS= read -r -d '' file; do
+            if [ "$(sha256sum "$file" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$file" source/LinuxLoader.efi
+            fi
+          done
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  source/LinuxLoader.efi' | sha256sum -c
+      - name: Audit original AVB2 NOAVB conditional references and strings
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'pefile>=2024.8,<2027' 'capstone>=5,<6'
+          python3 -m py_compile tools/audit_abl_avb_switch_xrefs.py
+          python3 tools/audit_abl_avb_switch_xrefs.py \
+            --abl source/LinuxLoader.efi \
+            --out report/ABL_AVB2_NOAVB_BRANCH_STRING_XREFS.json
+          python3 -m json.tool report/ABL_AVB2_NOAVB_BRANCH_STRING_XREFS.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_ABL_AVB2_NOAVB_SOURCE_XREFS
+          path: report/ABL_AVB2_NOAVB_BRANCH_STRING_XREFS.json
+          retention-days: 14
