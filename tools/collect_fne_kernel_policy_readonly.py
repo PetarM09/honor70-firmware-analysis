@@ -8,7 +8,7 @@ not an arbitrary Android application. Data is sanitized; no phone identifiers.
 import argparse,datetime,json,re,subprocess
 from pathlib import Path
 
-PROPERTIES=("ro.product.model","ro.build.version.release","ro.build.version.security_patch","ro.build.fingerprint","ro.boot.verifiedbootstate","ro.boot.flash.locked","ro.boot.vbmeta.device_state")
+PROPERTIES=("ro.product.model","ro.product.device","ro.build.version.release","ro.build.version.security_patch","ro.build.fingerprint","ro.boot.verifiedbootstate","ro.boot.flash.locked","ro.boot.vbmeta.device_state")
 LIMIT=16384
 def execute(*args,timeout=12):
  try:
@@ -18,7 +18,7 @@ def execute(*args,timeout=12):
  except (OSError,subprocess.TimeoutExpired) as e:
   return {"ok":False,"text":"","error":type(e).__name__}
 def read_shell(command):
- return execute("shell","sh","-c",command)
+ return execute("shell",command)
 def clean(value):
  # Retain only kernel-policy-relevant lines, not full process environment.
  return [s for s in value.splitlines() if re.match(r"^(Name|State|Uid|Gid|NoNewPrivs|Seccomp|Seccomp_filters|Cap(Prm|Eff|Bnd)|TracerPid):",s)]
@@ -42,18 +42,18 @@ def gather():
  report["observations"]["kernel_release"]=read_shell("uname -r")["text"].strip()
  for label,cmd in {
   "shell_context":"id -Z 2>/dev/null",
-  "shell_proc_status":"grep -E '^(Name|State|Uid|Gid|NoNewPrivs|Seccomp|Seccomp_filters|CapPrm|CapEff|CapBnd|TracerPid):' /proc/$/status 2>/dev/null",
+  "shell_child_proc_status":"cat /proc/self/status 2>/dev/null",
   "kernel_config_readability":"if test -r /proc/config.gz; then echo readable; else echo unavailable; fi",
   "selinux_enforcing":"cat /sys/fs/selinux/enforce 2>/dev/null",
  }.items():
   r=read_shell(cmd)
   val=r["text"].strip()
-  if label=="shell_proc_status":
+  if label=="shell_child_proc_status":
    report["observations"][label]=clean(val)
   else:
    report["observations"][label]=val if r["ok"] else None
  report["limitations"]=[
-  "The observed shell process context and seccomp state do NOT establish application permissions.",
+  "The observed shell-child seccomp state does NOT establish application permissions.",
   "This tool does not exercise PI futex operations or try to trigger CVE-2026-43499.",
   "This tool does not establish root, kernel read/write or bootloader unlock.",
   "If multiple adb devices are connected, select one with ANDROID_SERIAL before running."
