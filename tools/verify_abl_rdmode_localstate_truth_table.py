@@ -121,7 +121,7 @@ def main():
         ]
     }
     a.out.parent.mkdir(parents=True,exist_ok=True)
-    a.out.write_text(json.dumps(outcome,indent=2)+"\\n")
+    a.out.write_text(json.dumps(outcome,indent=2)+"\n")
     print("RD_MODE_0x82_TO_LOCAL_CONTEXT_VERIFIED",json.dumps(outcome,ensure_ascii=False))
 if __name__=="__main__":
     main()
