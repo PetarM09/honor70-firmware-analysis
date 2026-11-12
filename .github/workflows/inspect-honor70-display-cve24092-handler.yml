@@ -1,0 +1,47 @@
+name: HONOR70 Inspect CVE-24092 Display Handler and Locked-Mode Gate
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-honor70-display-cve24092-handler.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Retrieve full signed EEA display Fastboot decompiler report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source evidence
+          gh run download 43129403421 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_EEA_DISPLAYMODE_FASTBOOT_GHIDRA --dir source
+          test -s source/HONOR70_DISPLAYMODE_CVE24092_SIGNED_ABL_HANDLERS.txt
+      - name: Print exact original display parser and command allowlist
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          s=Path('source/HONOR70_DISPLAYMODE_CVE24092_SIGNED_ABL_HANDLERS.txt').read_text(errors='replace')
+          print('GHIDRA_TEXT_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          for addr in ['00025e2c','00025cc4','00025c6c','00049098','000492d0','000134c0','00022f40','000231e8']:
+            marker='===== DISPLAY_TARGET '+addr+' ====='
+            a=s.find(marker)
+            if a<0:
+              print('MISSING_TARGET',addr)
+              continue
+            b=s.find('===== DISPLAY_TARGET ',a+len(marker))
+            data=s[a:b if b>=0 else None]
+            Path('evidence/'+addr+'.txt').write_text(data)
+            print('===== TARGET',addr,'BYTES',len(data))
+            print(data[:26000] if addr=='00025e2c' else data[:11500])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_DISPLAY_CVE24092_DECOMPILED_PARSER
+          path: evidence/*.txt
+          retention-days: 14
