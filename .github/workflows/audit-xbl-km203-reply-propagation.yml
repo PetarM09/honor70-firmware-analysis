@@ -1,0 +1,38 @@
+name: HONOR70 Original XBL KM203 Reply Validation and ABL Wipe Correlation
+on:
+  push:
+    paths:
+      - 'tools/audit_xbl_203_response_status_propagation.py'
+      - '.github/workflows/audit-xbl-km203-reply-propagation.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original source-pinned EEA VerifiedBootDxe decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input result
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir input
+          test -s "$(find input -type f -name VERIFIEDBOOT_DXE_GHIDRA.txt -print -quit)"
+      - name: Inspect secure Keymaster 0x203 response and XBL return logic
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_xbl_203_response_status_propagation.py
+          python3 tools/audit_xbl_203_response_status_propagation.py \
+            --report "$(find input -type f -name VERIFIEDBOOT_DXE_GHIDRA.txt -print -quit)" \
+            --out result/ORIGINAL_XBL_KM203_RETURN_PROPAGATION.json
+          python3 -m json.tool result/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_XBL_KM203_REPLY_GUARD_SOURCE
+          path: result/*.json
+          retention-days: 14
