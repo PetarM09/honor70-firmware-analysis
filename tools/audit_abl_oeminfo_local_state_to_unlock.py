@@ -74,6 +74,14 @@ KNOWN_ASSERTIONS = {
     0x3dc9c: ("mov", "w9, #9"),
     0x3dca8: ("mov", "w8, #7"),
     0x3dcac: ("csel", "w8, w8, w9, ne"),
+    0x156dc: ("bl", "#0x1bb68"),
+    0x156e0: ("cbz", "#0x157b8"),
+    0x15780: ("bl", "#0x1bb68"),
+    0x15784: ("cbz", "#0x157b8"),
+    0x157b8: ("mov", "w0, #1"),
+    0x157e0: ("mov", "w0, wzr"),
+    0x1c678: ("add", "sp, sp, #0x20"),
+    0x1c67c: ("ret", ""),
 }
 
 
@@ -143,6 +151,16 @@ def main():
         expected_kind=1 if "critical" in name else 0
         if row["arg0_kind"]!=expected_kind or row["arg1_requested_state_byte"]!=expected_request:
             raise ValueError(f"UI table request mismatch for {name}: {row}")
+    # Original read-only PE RVA strings used in the two credential
+    # predicates of the helper that receives OEMINFO record 0x82.
+    literal_rvas=[0xb6792,0xb67a2,0xb64aa,0xb64c9,0xb64e5]
+    data_literals=[]
+    for rva in literal_rvas:
+        offset=pe.get_offset_from_rva(rva)
+        blob=raw[offset:offset+150].split(b"\\x00",1)[0]
+        data_literals.append({"rva":hex(rva),
+                              "string":blob.decode("ascii","replace"),
+                              "raw_hex":blob.hex()})
     windows={}
     for key,(lo,hi) in WINDOWS.items():
         ins=[i for i in listing if lo<=i.address<hi]
@@ -167,6 +185,14 @@ def main():
         "arm64_windows":windows,
         "ui_callback_table_start_rva":"0xc3b90",
         "ui_callback_rows_static_pe":ui_rows,
+        "oeminfo_validator_related_original_pe_literals":data_literals,
+        "oeminfo_branch_conclusion":{
+            "normal_returning_0x1bf74_sets_w0_to_2":True,
+            "on_normal_returning_path_0x12cf8_branches_to_0x15690":True,
+            "rdmod_0x1a7b0_path_not_taken_if_0x1bf74_returns_normally":True,
+            "oeminfo_validator_0x15690_returns_one_on_two_explicit_failure_branches":True,
+            "actual_oeminfo_record_contents_unknown":True
+        },
         "verified_fastboot_ui_normal_critical_requested_values":{
             name:{"entry_index":idx,"arg0_kind":ui_rows[idx]["arg0_kind"],
                   "requested_state":ui_rows[idx]["arg1_requested_state_byte"]}
@@ -200,6 +226,9 @@ def main():
         print("UI_CALLBACK_ROW",json.dumps(row))
     print("UI_MODES",json.dumps(result["verified_fastboot_ui_normal_critical_requested_values"]))
     print("BRANCH_INFERENCE",json.dumps(result["branch_inference"]))
+    print("OEMINFO_BRANCH_CONCLUSION",json.dumps(result["oeminfo_branch_conclusion"]))
+    for literal in data_literals:
+        print("OEMINFO_VALIDATOR_STRING",json.dumps(literal))
     for name,ins in windows.items():
         print("===== ARM64 WINDOW",name)
         print("\n".join(ins))
