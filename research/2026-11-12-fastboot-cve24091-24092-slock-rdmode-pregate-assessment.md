@@ -56,7 +56,7 @@ The original dispatcher `FUN_00022C7C` calls `FUN_000134C0(command)` **before wa
 
 The display handler `0x25E2C` itself uses 256-byte temporary buffers and reads/writes UEFI `DisplayPanelOverride`; we have not identified a source-proven memory-safety fault or arbitrary code execution from this handler.
 
-## Higher-priority, still UNPROVEN: common Fastboot pre-gate terminator
+## Originally suspicious, now disproven for the stock USB receive path: common Fastboot pre-gate terminator
 
 A [new signed ABL Fastboot parser review #43130106309](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43130106309) and [full function source trace #43130298528](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43130298528) reveal:
 
@@ -79,6 +79,17 @@ The `[length]` NUL write happens **before** the locked-mode allowlist gate. If t
 
 The parser is entered via the receive callback `FUN_00022A64` and an asynchronous completion callback `FUN_00024364`, which forwards a length/pointer pair from a buffer descriptor. Establishing the **actual allocation and lifetime of this pointer** is a necessary prerequisite to any exploitation assessment.
 
+### Follow-up correction: the input USB RX buffer is allocated at 0x1000000 bytes, NOT 64
+
+The original signed ABL USB initialization function `FUN_000205D0` calls its USB protocol allocator with **`(0x1000000, &DAT_001C1738)`** — an allocation request for **16,777,216 bytes**. The event receiver `FUN_00020328` then submits `(1, 0x1FF, DAT_001C1738)`, a receive operation of up to **511 bytes into the same global RX pointer**. Its callback `FUN_00022A64` reaches the Fastboot parser `FUN_00022C7C`.
+
+- [Signed Ghidra USB allocator extraction, run 43130869693](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43130869693)
+- [Original exact initialization trace, run 43131042998](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43131042998)
+- [Independent successful crosscheck — run 43131222563](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43131222563)
+- [Reproducible verifier](../tools/verify_abl_usb_rx_bounds_no_64byte_oob.py)
+
+**Correction:** the `buffer[min(length,64)] = 0` statement **does not overflow the normal stock USB RX allocation**, because that allocation is far larger than 65 bytes. The original suggestion of a straightforward off-by-one bug was a testable hypothesis; it has now been **rejected for this receive path**. A different input pointer path or independent parser issue has not been audited comprehensively, but no supported exploit or memory corruption is demonstrated here. Do **not** attempt malformed commands based on this now-rejected hypothesis.
+
 This source condition should not be equated automatically with CVE-2026-24091: the published CVE has no public vulnerable function offset matching our binary.
 
 ## Research decision
@@ -87,6 +98,6 @@ This source condition should not be equated automatically with CVE-2026-24091: t
 
 **SLock/RDMode:** signed-token verification present; no demonstrated forgery or effect on protected `0x203` state writer; do not write OEMINFO #130, FRP, or SLock state to force access.
 
-**Common pre-gate parser:** review original USB buffer lifetime and allocation; do not send deliberate malformed Fastboot inputs based on an unverified 1-byte write hypothesis. Even a proved crash is not the same as reliable controlled execution and a persistent bootloader unlock.
+**Common pre-gate parser:** the suspected 64-byte terminator overflow is **disproven for the normal USB RX path by the independently verified 16 MiB allocation**. No evidence yet identifies a different exploitable pre-gate parser flaw. Even a future proved crash would not be the same as reliable controlled execution and persistent bootloader unlock.
 
 No working permanent unlock method for HONOR 70 FNE-NX9 C431 MagicOS 8.0.0.290 has been obtained as of this report.
