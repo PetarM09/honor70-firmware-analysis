@@ -21,6 +21,24 @@ def main():
     f=s[start:end if end>=0 else None]
     if len(f)<30000:
         raise ValueError("Original ABL 0x3144 function is truncated")
+    caller_start=s.find("===== AVB_FUNCTION 000014d0 ")
+    if caller_start<0:
+        raise ValueError("Original bootloader entry 0x14D0 function missing")
+    caller_end=s.find("===== AVB_FUNCTION ",caller_start+20)
+    caller=s[caller_start:caller_end if caller_end>=0 else None]
+    expected_caller_chain=[
+        'bVar2 = FUN_0003e268(L"boot");',
+        'FUN_0005595c(0x400000,"Multi Slot boot is supported\\n");',
+        'local_520 = bVar2;',
+        'FUN_00001dd4(&local_520);',
+        'lVar5 = FUN_00003144(&local_520);'
+    ]
+    caller_positions=[caller.find(token) for token in expected_caller_chain]
+    if any(position<0 for position in caller_positions):
+        raise ValueError("No original entry caller source proof of A/B-slot parameter")
+    if caller_positions != sorted(caller_positions):
+        raise ValueError("Original signed ABL entry slot flag trace changed")
+
     names={
         "vb2_verification_failure_logging": 'LoadImageAndAuthVB2 fail errno',
         "milestone_logging": 'Sending Milestone Call',
@@ -53,11 +71,13 @@ def main():
         "original_signed_abl_symbol":"FUN_00003144",
         "original_source_sha256":hashlib.sha256(source).hexdigest(),
         "function_bytes":len(f),
+        "entry_caller_0x14d0_slot_flag_token_positions":caller_positions,
         "exact_pseudocode_token_positions":offsets,
         "confirmed":{
             "vb2_path_before_milestone":True,
             "milestone_provider_method_plus_0x20_before_fw_ufsdev":True,
             "NoAVB_named_path_targets_fw_ufsdev_firmware_partition":True,
+            "boot_entry_argument_is_multislot_support_bit_not_AVB2_selector":True,
             "the_label_NoAVBLoad_fw_ufsdev_is_not_evidence_of_android_boot_NO_AVB":True
         },
         "not_proven":[
