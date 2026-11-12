@@ -48,9 +48,13 @@ class TestC431ReadOnlyProfile(unittest.TestCase):
         with self.assertRaises(ValueError):validate_profile(p)
     def test_no_unsafe_adb_commands(self):
         self.assertTrue(all(c[:1]==["shell"] for c in ADB_COMMANDS.values()))
-        words=" ".join(" ".join(c) for c in ADB_COMMANDS.values())
-        for prohibited in ("fastboot","flash","write","reboot","su ","dd ","futex","edl","push","pull"):
-            self.assertNotIn(prohibited,words)
+        for command in ADB_COMMANDS.values():
+            # Each command is argv-only: no command shell interpretation.
+            self.assertEqual(command[0],"shell")
+            self.assertIn(command[1],{"getprop","uname","getenforce","id"})
+            for token in command[1:]:
+                self.assertNotIn(token,{"fastboot","flash","write","reboot",
+                                        "su","dd","futex","edl","push","pull"})
     def test_adb_uses_mock_reader_only(self):
         invoked=[]
         def fake_runner(args,**kwargs):
