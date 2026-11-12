@@ -1,0 +1,56 @@
+name: HONOR70 OEM GPL Task Layout Delta Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_oem_c431_struct_drift.py'
+      - 'tools/test_audit_oem_c431_struct_drift.py'
+      - '.github/workflows/audit-honor-gpl-sched-drift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run no-device regression tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_oem_c431_struct_drift.py
+          python3 -m unittest discover -s tools -p 'test_audit_oem_c431_struct_drift.py' -v
+      - name: Fetch source-verified GPL artifacts from completed SHA-pinned extraction run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/fennie inputs/an00 report
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES --dir inputs/fennie
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_61_CORE_KERNEL_SOURCES --dir inputs/an00
+          echo '9f93a2b3c26269a749db7ca74ac184812249be60280012cd3e7d43ac7bc3f024  inputs/fennie/FENNIE/include_sched_h.txt' | sha256sum -c
+          echo 'cf72ac337bef4fed0ef1a26757db9b56b3f096ea66835b2bb5dbeaf1c67bbab5  inputs/an00/AN00/include_sched_h.txt' | sha256sum -c
+          echo 'c79353d84625e4d352be7d96193cf162fba7857a85171540996f499679ea3d08  inputs/fennie/FENNIE/kernel_rtmutex_common_h.txt' | sha256sum -c
+          echo 'c79353d84625e4d352be7d96193cf162fba7857a85171540996f499679ea3d08  inputs/an00/AN00/kernel_rtmutex_common_h.txt' | sha256sum -c
+          (cd inputs/fennie && zip -q -r ../fennie.zip FENNIE)
+          (cd inputs/an00 && zip -q -r ../an00.zip AN00)
+      - name: Produce source-level compatibility report (not exploit profile)
+        run: |
+          set -euo pipefail
+          python3 tools/audit_oem_c431_struct_drift.py \
+            --an00-artifact inputs/an00.zip \
+            --fennie-artifact inputs/fennie.zip \
+            --out report/FNE_AN00_TO_FENNIE_TASK_STRUCT_SOURCE_DELTA.json
+          python3 -m json.tool report/FNE_AN00_TO_FENNIE_TASK_STRUCT_SOURCE_DELTA.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_GPL_TASK_STRUCT_SOURCE_DRIFT
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
