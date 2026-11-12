@@ -13,7 +13,7 @@ ROLES = {
     "include_rtmutex_h": "/kernel/include/linux/rtmutex.h",
     "include_sched_h": "/kernel/include/linux/sched.h",
     "kernel_futex_c": "/kernel/kernel/futex.c",
-    "kernel_makefile": "/kernel/Makefile",
+    "kernel_makefile": "/kernel/kernel/Makefile",
     "source_root_makefile": "/Code_Opensource/kernel/Makefile",
     "kernel_locking_kconfig": "/kernel/kernel/locking/Kconfig",
     "arch64_gki_defconfig": "/kernel/arch/arm64/configs/gki_defconfig",
