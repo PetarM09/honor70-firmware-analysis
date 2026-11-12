@@ -45,9 +45,7 @@ def main():
    inp.seek(off);raw=inp.read(length)
    # Avoid expensive disassembly of millions of instructions: ARM64 BL opcode
    # mask 0xfc000000 equals 0x94000000, immediate is signed 26-bit << 2.
-   for (v,) in struct.iter_unpack("<I",raw[:len(raw)//4*4]):
-    pass
-   # Actual scan with location index, avoiding accidental signed address truncation.
+   # Track instruction offsets while preserving the original 64-bit virtual address.
    for i,(v,) in enumerate(struct.iter_unpack("<I",raw[:len(raw)//4*4])):
     if v&0xfc000000!=0x94000000:continue
     imm=v&0x3ffffff
