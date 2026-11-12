@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence/arm64 evidence/fennie report
-          gh run download 43228277888 --repo "$GITHUB_REPOSITORY" \
+          gh run download 43228734050 --repo "$GITHUB_REPOSITORY" \
             --name HONOR70_EXACT_C431_ARM64_RT_MUTEX_ABI_SITES \
             --dir evidence/arm64
           gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
