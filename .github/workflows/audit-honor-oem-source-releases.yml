@@ -1,0 +1,105 @@
+name: HONOR70 OEM GPL Source Release Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_honor_fennie_release_sources.py'
+      - 'tools/test_audit_honor_fennie_release_sources.py'
+      - '.github/workflows/audit-honor-oem-source-releases.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fennie_magicos8:
+    name: Analyze signed-digest Fennie MagicOS 8 GPL ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source audit parser against synthetic archives
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_honor_fennie_release_sources.py
+          python3 -m unittest discover -s tools -p 'test_audit_honor_fennie_release_sources.py' -v
+      - name: Download official Fennie archive from this repo's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh release download MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip' \
+            --dir src
+          echo '0323a0381c0035ede14ef9827da0e7aecd0d836d83552f727ed7f7e5160d5672  src/MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip' | sha256sum -c
+      - name: Analyze nested kernel, futex, rtmutex and defconfig source
+        run: |
+          set -euo pipefail
+          python3 tools/audit_honor_fennie_release_sources.py \
+            src/MagicOS8.0-ROM-Fennie_MagicOS8.0_Opensource.zip \
+            --expect-sha256 0323a0381c0035ede14ef9827da0e7aecd0d836d83552f727ed7f7e5160d5672 \
+            --out report/FENNIE_MAGICOS8_KERNEL_SOURCE_AUDIT.json \
+            | tee report/FENNIE_AUDIT_SUMMARY.txt
+          python3 -m json.tool report/FENNIE_MAGICOS8_KERNEL_SOURCE_AUDIT.json >/dev/null
+      - name: Save source evidence (no device operations)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FENNIE_MAGICOS8_SOURCE_AUDIT
+          path: report/
+          if-no-files-found: warn
+          retention-days: 30
+
+  an00_magicui61:
+    name: Inspect verified FNE-AN00 MagicUI 6.1 RAR manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install read-only RAR archive metadata inspector
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unar
+      - name: Download and digest-verify reference MagicUI6.1 RAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh release download FNE-AN00_MagicUI6.1_Code_Opensource \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'FNE-AN00_MagicUI6.1_Code_Opensource.rar' \
+            --dir src
+          echo '645f129c46b2e1b5ad17be29f0bc304448a3872004d70d4d1c2010ab41a869e7  src/FNE-AN00_MagicUI6.1_Code_Opensource.rar' | sha256sum -c
+      - name: Inventory RAR source names without extracting it
+        run: |
+          set -euo pipefail
+          lsar -json src/FNE-AN00_MagicUI6.1_Code_Opensource.rar > report/AN00_MAGICUI61_RAR_MANIFEST.json
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          m=json.loads(Path('report/AN00_MAGICUI61_RAR_MANIFEST.json').read_text())
+          entries=m.get('lsarContents', [])
+          names=[x.get('XADFileName', '') for x in entries if isinstance(x,dict)]
+          p=re.compile(r'(rtmutex|futex|sched\.h|defconfig|\.tar|\.zip|kernel)',re.I)
+          matched=[n for n in names if p.search(n)]
+          out={'archive':'FNE-AN00 MagicUI 6.1','sha256':'645f129c46b2e1b5ad17be29f0bc304448a3872004d70d4d1c2010ab41a869e7',
+               'all_member_count':len(names),'matches_first_250':matched[:250],
+               'matched_count':len(matched),'only_outer_RAR_names_examined':True,
+               'kernel_source_compatibility_confirmed':False,'device_operations':0}
+          Path('report/AN00_MAGICUI61_SOURCE_NAMES.json').write_text(json.dumps(out,indent=2)+'\n')
+          print('AN00_RAR_FILE_COUNT',len(names))
+          print('AN00_KERNEL_SOURCE_CANDIDATE_NAMES',len(matched))
+          for x in matched[:20]:print('AN00_PATH',x)
+          PY
+      - name: Save reference names
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FNE_AN00_MAGICUI61_SOURCE_MANIFEST
+          path: report/
+          if-no-files-found: warn
+          retention-days: 30
