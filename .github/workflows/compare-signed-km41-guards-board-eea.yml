@@ -24,15 +24,21 @@ jobs:
             --name HONOR70_KM41_WRITE_FUSE_GUARD --dir evidence/eea
           gh run download 42605355587 --repo "$GITHUB_REPOSITORY" \
             --name HONOR70_BOARD_KM41_EXACT_WRITE_MILESTONE --dir evidence/board
-          test -s evidence/eea/KM41_WRITE_MILESTONE_DECOMPILE.txt
-          test -s evidence/board/BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt
+          find evidence -type f -maxdepth 4 -printf '%p %s bytes\n'
+          EEA="$(find evidence/eea -type f -name KM41_WRITE_MILESTONE_DECOMPILE.txt -print -quit)"
+          BOARD="$(find evidence/board -type f -name BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt -print -quit)"
+          test -n "$EEA" && test -n "$BOARD"
+          cp "$EEA" evidence/eea-source.txt
+          cp "$BOARD" evidence/board-source.txt
+          test -s evidence/eea-source.txt
+          test -s evidence/board-source.txt
       - name: Compare fuse security guards and each transport state handler
         run: |
           set -euo pipefail
           python3 -m py_compile tools/compare_signed_km41_retail_board_unlock_guards.py
           python3 tools/compare_signed_km41_retail_board_unlock_guards.py \
-            --eea evidence/eea/KM41_WRITE_MILESTONE_DECOMPILE.txt \
-            --board evidence/board/BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt \
+            --eea evidence/eea-source.txt \
+            --board evidence/board-source.txt \
             --out report/ORIGINAL_EEA_BOARD_KM41_SECURE_GATES.json
           python3 -m json.tool report/*.json >/dev/null
       - uses: actions/upload-artifact@v4
