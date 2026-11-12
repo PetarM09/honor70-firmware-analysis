@@ -34,6 +34,13 @@ def main():
     first=w.find("0x202)")
     second=w.find("0x203)")
     if first<0 or second<0 or second<=first:raise RuntimeError("No secure write preread ordering")
+    from_write=w[second:second+2200]
+    if not re.search(r"if\s*\(\s*\(lVar3\s*==\s*0\)\s*&&\s*\(local_f8\s*==\s*0\)\s*\)", from_write):
+        raise RuntimeError("KM 0x203 transport+reply status guard missing from original signed XBL")
+    if 'VB: RWDeviceState: write_req err! staus %d write status %d' not in from_write:
+        raise RuntimeError("KM 0x203 failure diagnostic not present")
+    if "lVar3 = 0x50;" not in from_write:
+        raise RuntimeError("KM 0x203 failure not converted to EFI error 0x50")
     contexts={
         "read_202":snippets(w,"0x202)",400,1400),
         "write_203":snippets(w,"0x203)",1500,7400),
@@ -50,6 +57,9 @@ def main():
       "preread_command":"0x202",
       "write_command":"0x203",
       "write_branch_contains_pre_read":True,
+      "write_0x203_transport_and_reply_must_both_succeed":True,
+      "write_0x203_failure_diagnostic":"VB: RWDeviceState: write_req err! staus %d write status %d",
+      "write_0x203_failed_operation_returns_efi_error":"0x50",
       "only_guaranteed_from_static":"Ghidra pseudocode, not executed on device",
       "context":contexts,
       "unknown":"Whether a historical unlock callback reached KM 0x203 or what response it received",
@@ -58,6 +68,8 @@ def main():
     a.out.parent.mkdir(parents=True,exist_ok=True)
     a.out.write_text(json.dumps(result,indent=2)+"\n")
     print("STOCK_XBL_RW_DEVICE_STATE_SHA",result["source_function_sha256"])
+    print("SIGNED_XBL_KM203_TRANSPORT_AND_REPLY_BOTH_CHECKED")
+    print("SIGNED_XBL_KM203_FAILED_RESPONSE_RETURNS_0x50")
     print("ORIGINAL_0x203_WRITER_CONTEXT")
     for x in contexts["write_203"]:
         print(x["excerpt"][:12500])
