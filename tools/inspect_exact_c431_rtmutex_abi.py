@@ -63,6 +63,7 @@ def inspect(elf,symbols):
    'symbol_va':hex(addr),'byte_window':len(data),
    'window_sha256':hashlib.sha256(data).hexdigest(),
    'contains_possible_next_function':True,
+   'initial_instructions_for_register_flow':ins[:180],
    'selected_source_machine_instructions':filtered
   }
  orig=report['functions']['remove_waiter']['selected_source_machine_instructions']
