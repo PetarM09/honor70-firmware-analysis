@@ -31,9 +31,45 @@ def grade(report):
  funcs=report.get('orig_signed_functions')
  need(isinstance(funcs,dict),'missing disassembly')
  if isinstance(funcs,dict):
-  for name,addr in [('rt_mutex_start_proxy_lock','0xffffffc01037e2c0'),('remove_waiter','0xffffffc01037e350')]:
+  expected_functions={'rt_mutex_start_proxy_lock':'0xffffffc01037e2c0',
+                      'remove_waiter':'0xffffffc01037e350'}
+  instructions={}
+  for name,addr in expected_functions.items():
    fn=funcs.get(name)
-   need(isinstance(fn,dict) and fn.get('vaddr')==addr and isinstance(fn.get('instructions'),list) and len(fn['instructions'])>0,'missing or incorrect disassembly '+name)
+   valid=(isinstance(fn,dict) and fn.get('vaddr')==addr and
+          isinstance(fn.get('instructions'),list) and len(fn['instructions'])>0)
+   need(valid,'missing or incorrect disassembly '+name)
+   if not valid:continue
+   for ins in fn['instructions']:
+    if not isinstance(ins,dict):errors.append('malformed instruction '+name);continue
+    try:
+     address=int(ins['addr'],16)
+     mnemonic=ins['mnemonic']
+     op_str=ins['op_str']
+     if not isinstance(mnemonic,str) or not isinstance(op_str,str):
+      raise TypeError('instruction not text')
+     if address in instructions:errors.append('duplicate address '+hex(address))
+     instructions[address]=(mnemonic,op_str,name)
+    except (KeyError,ValueError,TypeError):
+     errors.append('invalid instruction format '+name)
+  for addr,source in PREDICATES.items():
+   mnemonic,operand=source.split(' ',1)
+   actual=instructions.get(int(addr,16))
+   need(actual is not None and actual[:2]==(mnemonic,operand)
+        and actual[2]=='rt_mutex_start_proxy_lock',
+        'disassembly instruction mismatch '+addr)
+  need(instructions.get(0xffffffc01037e300)==
+       ('bl','#0xffffffc01037e350','rt_mutex_start_proxy_lock') or
+       instructions.get(0xffffffc01037e300)==
+       ('bl','0xffffffc01037e350','rt_mutex_start_proxy_lock'),
+       'remove_waiter call instruction mismatch')
+  current=instructions.get(0xffffffc01037e384)
+  need(current is not None and current[0]=='mrs' and current[1].strip()=='x20, sp_el0'
+       and current[2]=='remove_waiter','current task read instruction mismatch')
+  clear=instructions.get(0xffffffc01037e3cc)
+  need(clear is not None and clear[:2]==('str','xzr, [x20, #0x990]')
+       and clear[2]=='remove_waiter','current PI clear instruction mismatch')
+
  return {
   'schema_version':1,
   'input_sha256':hashlib.sha256(json.dumps(report,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
