@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "source": "SHA-pinned original owner-uploaded FDT bytes, re-audited locally with pure Python parser; not live",
+  "base_dtb": {
+    "index": 13,
+    "sha256": "bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9",
+    "model": [
+      "Qualcomm Technologies, Inc. Yupik SoC"
+    ]
+  },
+  "selected_overlay": {
+    "index": 18,
+    "sha256": "c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc",
+    "model": [
+      "Honor Technologies, Inc. FNE-NX9-781-208"
+    ],
+    "board_id_decimal": 8790,
+    "hardware_version": [
+      "HN2FNEM03_VA"
+    ],
+    "board_name": [
+      "FNE_NX9_LV_VA_SCP"
+    ]
+  },
+  "external_fixups": {
+    "base_exported_symbols": 1574,
+    "external_symbols_count": 165,
+    "external_symbols_resolved": 165,
+    "patch_sites_valid": 468
+  },
+  "fragments": {
+    "total": 137,
+    "targets_resolved": 137,
+    "targeting_memory": 0,
+    "targeting_reserved_memory": 1,
+    "reserved_memory_targets": {
+      "/fragment@130": "/reserved-memory"
+    }
+  },
+  "internal_fixups": {
+    "local_fixup_nodes": 207,
+    "patch_sites_valid": 262
+  },
+  "memory_evidence": {
+    "base_hyp_reserved": [
+      {
+        "start": "0x80000000",
+        "size": "0x600000"
+      }
+    ],
+    "base_memory_reg": [
+      {
+        "start": "0x0",
+        "size": "0x0"
+      }
+    ],
+    "removed_region_reg_unchanged": true,
+    "removed_region_no_map_unchanged": true
+  },
+  "original_input_artifacts": {
+    "reference_zip": "HONOR70_C431_NX9_DTB_REFERENCE_SET.zip",
+    "vendor_boot_partition_sha256": "ca0ef34c45c55e91bd8da2bf02a0c5d9f359feb5e5d7873ee2aab1f61d903f46",
+    "dtbo_partition_sha256": "ecb2e289d49b6e51f89c0e4a16233521bc87a38c16c36753faa8a4a2fddca328"
+  },
+  "audit_scope": {
+    "exact_original_selected_FDT_bytes_read_locally": true,
+    "ci_unit_tests_synthetic_only": true,
+    "actual_fdtoverlay_merge_performed": false,
+    "live_partition_identity_proven": false,
+    "active_merged_fdt_read": false,
+    "kernel_phys_load_known": false,
+    "runtime_slide_known": false,
+    "ghostlock_uaf_or_root_tested": false,
+    "device_operations": 0
+  }
+}
