@@ -14,6 +14,7 @@ ROLES = {
     "include_sched_h": "/kernel/include/linux/sched.h",
     "kernel_futex_c": "/kernel/kernel/futex.c",
     "kernel_makefile": "/kernel/Makefile",
+    "source_root_makefile": "/Code_Opensource/kernel/Makefile",
     "kernel_locking_kconfig": "/kernel/kernel/locking/Kconfig",
     "arch64_gki_defconfig": "/kernel/arch/arm64/configs/gki_defconfig",
 }
@@ -22,12 +23,15 @@ MAX_MEMBER = 8_000_000
 def extract(source, out):
     out.mkdir(parents=True, exist_ok=True)
     entries, total = {}, 0
+    config_candidates = []
     with tarfile.open(source, mode="r|gz") as tf:
         for member in tf:
             if not member.isfile():
                 continue
             total += 1
             name = "/" + member.name.replace("\\", "/").lstrip("/")
+            if "/arch/arm64/configs/" in name and any(t in name.lower() for t in ("fne", "fennie", "gki", "vendor", "lahaina", "sm7325")) and len(config_candidates) < 200:
+                config_candidates.append(member.name)
             role = next((name_key for name_key, suffix in ROLES.items()
                          if name.endswith(suffix)), None)
             if role is None or role in entries:
@@ -51,7 +55,8 @@ def extract(source, out):
             }
     result = {
         "source_archive": source.name, "tar_entries": total,
-        "selected_sources": entries, "source_exact_c431_match_proven": False,
+        "selected_sources": entries, "arm64_config_candidates": config_candidates,
+        "source_exact_c431_match_proven": False,
         "file_operations": "read-only source archive, local report output only",
         "device_operations": 0,
     }
