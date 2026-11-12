@@ -1,0 +1,76 @@
+name: HONOR70 Safe Android App PI Futex Gate APK
+
+on:
+  push:
+    paths:
+      - 'android/fne-pi-gate/**'
+      - '.github/workflows/build-fne-pi-gate-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install stable Android SDK and NDK
+        run: |
+          set -euo pipefail
+          sdkmanager --install \
+            'platforms;android-35' \
+            'build-tools;35.0.0' \
+            'ndk;26.3.11579264'
+      - name: Build tiny ARM64 JNI library for uncontended PI-futex only
+        run: |
+          set -euo pipefail
+          mkdir -p android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a report
+          NDK="$ANDROID_HOME/ndk/26.3.11579264"
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" \
+            -shared -fPIC -O2 -Wall -Wextra -Werror \
+            -Wl,-z,noexecstack -Wl,-soname,libfnepi.so \
+            -o android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
+            android/fne-pi-gate/app/src/main/c/fne_pi_gate.c
+          file android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so | tee report/JNI_TARGET.txt
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h \
+            android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
+            | tee report/JNI_ELF_HEADER.txt
+          grep -q 'Machine:.*AArch64' report/JNI_ELF_HEADER.txt
+      - name: Build debug APK - no app permissions
+        working-directory: android/fne-pi-gate
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Audit APK and archive checksums
+        run: |
+          set -euo pipefail
+          APK=android/fne-pi-gate/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | tee report/APK_MEMBERS.txt
+          grep -q 'lib/arm64-v8a/libfnepi.so' report/APK_MEMBERS.txt
+          test "$(grep -c 'lib/.*libfnepi.so' report/APK_MEMBERS.txt)" = 1
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" \
+            | tee report/APK_PERMISSIONS.txt
+          ! grep -q 'uses-permission' report/APK_PERMISSIONS.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
+            | tee report/APK_BADGING.txt
+          sha256sum "$APK" | tee report/APK_SHA256.txt
+          sha256sum android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
+            | tee report/JNI_SHA256.txt
+          cp "$APK" report/HONOR70_FNE_PI_GATE_SAFE_APP_DEBUG.apk
+          printf 'Contains only native FUTEX_LOCK_PI and FUTEX_UNLOCK_PI on private uncontended futex.\nNo exploit/requeue/root/unlock operations.\nSigned with ephemeral CI debug key.\n' > report/SCOPE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_FNE_PI_GATE_SAFE_ANDROID_APK
+          path: report/
+          retention-days: 30
