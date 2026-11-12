@@ -28,6 +28,8 @@ WINDOWS = {
     "init_select_fallback_0x13d58": (0x13d58, 0x13d94),
     "secure_backed_state_getter_0x433a8": (0x433a8, 0x43468),
     "fastboot_ui_menu_entry_0x3dab8": (0x3dab8, 0x3dd38),
+    "oeminfo_validator_complete_0x15690": (0x15690, 0x158c8),
+    "constant_mode_helper_epilogue_0x1c558": (0x1c558, 0x1c694),
 }
 FULL_GHIDRA = (
     "12cf8", "12e90", "13008", "136a4", "1a7b0",
@@ -54,6 +56,24 @@ KNOWN_ASSERTIONS = {
     0x43748: ("bl", "#0x13008"),
     0x43750: ("cmp", "w8, w23, uxtb"),
     0x43754: ("b.eq", "#0x437a0"),
+    0x12d20: ("mov", "w0, #0x82"),
+    0x12d2c: ("bl", "#0x136a4"),
+    0x12d34: ("bl", "#0x1bf74"),
+    0x12d38: ("cmp", "w0, #2"),
+    0x12d3c: ("b.ne", "#0x12d70"),
+    0x12d48: ("bl", "#0x15690"),
+    0x12e84: ("mov", "w0, #1"),
+    0x1bf88: ("mov", "w0, #2"),
+    0x1bf8c: ("b", "#0x1c678"),
+    0x3da54: ("ldr", "w0, [x8]"),
+    0x3da58: ("ldrb", "w1, [x8, #8]"),
+    0x3da5c: ("bl", "#0x43688"),
+    0x3dc80: ("mov", "w8, #8"),
+    0x3dc84: ("mov", "w9, #5"),
+    0x3dc88: ("csel", "w8, w9, w8, ne"),
+    0x3dc9c: ("mov", "w9, #9"),
+    0x3dca8: ("mov", "w8, #7"),
+    0x3dcac: ("csel", "w8, w8, w9, ne"),
 }
 
 
@@ -110,6 +130,19 @@ def main():
         ui_rows.append({"index":idx,"table_rva":hex(table_rva+idx*16),
                         "arg0_kind":arg0,"arg1_requested_state_byte":arg1,
                         "row_raw_hex":row.hex()})
+    # The retail fastboot UI chooses a table index based on (critical,request).
+    # Code at 0x3DC80...0x3DCAC selects normal [5=unlock,8=lock],
+    # critical [7=unlock,9=lock]. The callback reads byte +0x08.
+    ui_modes = {
+        "normal_unlock":5, "normal_lock":8,
+        "critical_unlock":7, "critical_lock":9
+    }
+    for name,idx in ui_modes.items():
+        expected_request=1 if "unlock" in name else 0
+        row=ui_rows[idx]
+        expected_kind=1 if "critical" in name else 0
+        if row["arg0_kind"]!=expected_kind or row["arg1_requested_state_byte"]!=expected_request:
+            raise ValueError(f"UI table request mismatch for {name}: {row}")
     windows={}
     for key,(lo,hi) in WINDOWS.items():
         ins=[i for i in listing if lo<=i.address<hi]
@@ -134,6 +167,20 @@ def main():
         "arm64_windows":windows,
         "ui_callback_table_start_rva":"0xc3b90",
         "ui_callback_rows_static_pe":ui_rows,
+        "verified_fastboot_ui_normal_critical_requested_values":{
+            name:{"entry_index":idx,"arg0_kind":ui_rows[idx]["arg0_kind"],
+                  "requested_state":ui_rows[idx]["arg1_requested_state_byte"]}
+            for name,idx in ui_modes.items()
+        },
+        "branch_inference":{
+            "limited_fastboot_allowlist_is_checked_only_if_context_0x104_ne_1":True,
+            "logical_getter_returns_zero_if_init_guard_is_zero":True,
+            "logical_getter_returns_one_only_if_init_guard_and_context_0x104_eq_1":True,
+            "normal_unlock_request_value":1,
+            "critical_unlock_request_value":1,
+            "same_boot_limited_mode_context_zero_cannot_skip_unlock_write":True,
+            "does_not_prove_historical_ui_path":True
+        },
         "archived_ghidra_source":extracted,
         "interpretation_limitations":[
             "OEMINFO record 0x82 is an API record identifier, not necessarily a physical OEMINFO byte offset.",
@@ -151,6 +198,8 @@ def main():
         print("DIRECT_CALLERS",target,",".join(callers))
     for row in ui_rows:
         print("UI_CALLBACK_ROW",json.dumps(row))
+    print("UI_MODES",json.dumps(result["verified_fastboot_ui_normal_critical_requested_values"]))
+    print("BRANCH_INFERENCE",json.dumps(result["branch_inference"]))
     for name,ins in windows.items():
         print("===== ARM64 WINDOW",name)
         print("\n".join(ins))
