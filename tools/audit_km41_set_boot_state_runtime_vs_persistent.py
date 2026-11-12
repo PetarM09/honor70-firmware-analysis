@@ -43,14 +43,14 @@ def main():
     boot=funcs["208"]
     check("km_set_boot_state",boot,"boot-state handler identifier")
     check('qsee_log\\(8,"is_unlocked:',boot,"boot status is_unlocked log")
-    check(r"DAT_00139518\s*=\s*'\\x01'",boot,"runtime init flag set")
-    check(r"FUN_0012d130\\(&DAT_0013955c,0x30,local_48,0x30\\)",boot,"runtime 48-byte boot state copy")
-    check(r"if\s*\\(DAT_00139518 == '\\0'\\)",boot,"initialize only once in trustlet")
+    check(re.escape("DAT_00139518 = '\\x01'"),boot,"runtime init flag set")
+    check(re.escape("FUN_0012d130(&DAT_0013955c,0x30,local_48,0x30)"),boot,"runtime 48-byte boot state copy")
+    check(re.escape("if (DAT_00139518 == '\\0')"),boot,"initialize only once in trustlet")
     setrot=funcs["201"]
     check("KM_ERROR_ROOT_OF_TRUST_ALREADY_SET",setrot,"ROT already-set check")
-    check(r"DAT_00138b14\\s*=\\s*'\\x01'",setrot,"in-memory initialized flag")
+    check(re.escape("DAT_00138b14 = '\\x01'"),setrot,"in-memory initialized flag")
     rand=funcs["211"]
-    check(r"FUN_0012d130\\(&DAT_00138b19,0x20,param_1 \\+ 4,0x20\\)",rand,"internal 32-byte input copy")
+    check(re.escape("FUN_0012d130(&DAT_00138b19,0x20,param_1 + 4,0x20)"),rand,"internal 32-byte input copy")
     check("km_get_auth_token_key",funcs["205"],"auth-token key handler")
     check("ta_major_version",funcs["207"],"TA version report handler")
     check(r"return 0;",funcs["215"],"noop command")
