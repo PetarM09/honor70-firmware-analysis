@@ -10,6 +10,7 @@ from pathlib import Path
 ROLES = {
     "kernel_rtmutex_c": "/kernel/kernel/locking/rtmutex.c",
     "kernel_rtmutex_h": "/kernel/kernel/locking/rtmutex.h",
+    "kernel_rtmutex_common_h": "/kernel/kernel/locking/rtmutex_common.h",
     "include_rtmutex_h": "/kernel/include/linux/rtmutex.h",
     "include_sched_h": "/kernel/include/linux/sched.h",
     "kernel_futex_c": "/kernel/kernel/futex.c",
