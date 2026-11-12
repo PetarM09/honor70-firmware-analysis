@@ -25,6 +25,17 @@ Original `do_futex` local waiter is passed as `x29-0xd0` to the waiter init/prox
 
 The original firmware hash is pinned to `boot.img` SHA-256 `5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256` and extracted `Image` SHA-256 `bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece`.
 
+## Built and verified test package (2026-11-12)
+
+The **[v0.3 build succeeded in GitHub Actions run 43294501535](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43294501535)**. The CI passed **11 fail-closed profile tests**, compiled the Android arm64 JNI app, verified zero Android permissions, and compared the **exact SHA of the bundled asset** against this repository's C431 profile.
+
+- Android APK version: `0.3-c431-profile-preflight`, versionCode `3`, package `org.openhonor.fnepigate`.
+- Exact compiled APK SHA-256: `fa380ae95155e92531940b6ea152d4b73f3fe4ddbcaa60620021818dac11f706`.
+- The bundled profile SHA-256: `0dd061b002413b4547733e433e080e523044ac349465e8758f3b6dfc65ac9979`.
+- Actions artifact: `HONOR70_C431_PROFILE_PREFLIGHT_V03_ANDROID_APK` (includes APK and audit files). Debug-signed with an ephemeral Actions certificate.
+
+The first experimental test is **not yet executed on the owner's device**; the completed CI tests verify APK construction and consistency, not live C431 matching.
+
 ## How to test on the actual phone, without changing it
 
 ### Option A: FNE PI Gate v0.3 APK
