@@ -1,0 +1,43 @@
+name: HONOR70 Check Original ABL Display Fastboot CVE-2026-24092 Surface
+on:
+  push:
+    paths:
+      - 'tools/audit_abl_display_mode_fastboot_cve24092.py'
+      - '.github/workflows/audit-abl-display-mode-fastboot-cve24092.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain SHA-verified original EEA ABL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source evidence report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir evidence
+          find evidence -type f -name '*.efi' -print0 | while IFS= read -r -d '' f; do
+            if [ "$(sha256sum "$f" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$f" source/LinuxLoader.efi
+            fi
+          done
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  source/LinuxLoader.efi' | sha256sum -c
+      - name: Find display-mode command pointers in signed firmware
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6' 'pefile>=2024.8,<2027'
+          python3 -m py_compile tools/audit_abl_display_mode_fastboot_cve24092.py
+          python3 tools/audit_abl_display_mode_fastboot_cve24092.py \
+            --abl source/LinuxLoader.efi \
+            --out report/ABL_FASTBOOT_DISPLAYMODE_CVE_24092_CANDIDATES.json
+          python3 -m json.tool report/ABL_FASTBOOT_DISPLAYMODE_CVE_24092_CANDIDATES.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_FASTBOOT_DISPLAYMODE_CVE24092_STATIC_REFS
+          path: report/ABL_FASTBOOT_DISPLAYMODE_CVE_24092_CANDIDATES.json
+          retention-days: 14
