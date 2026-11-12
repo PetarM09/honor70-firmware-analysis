@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [**Matching original C431 kernel GhostLock signal; generated profile UNSAFE (2026-11-12)**](research/2026-11-12-exact-eea-ghostlock-matched-kernel-static-signal-profile-unsafe.md) | **New exact EEA firmware finding**: offline signed-kernel extractor identifies a `remove_waiter` code pattern associated with CVE-2026-43499, but derived GhostLock profile has **32 null geometry fields** and `kernel_phys_load=0xfffff000` from CI **host** memory, not phone. No safe executable profile, verified root or permanent unlock. [Safety audit passed](../../actions/runs/43143170752). |
 | [**Latest GhostLock FNE + Samsung Keymaster vulnerability applicability (2026-11-12)**](research/2026-11-12-ghostlock-fne-kernel-mismatch-and-keymaster-cve-triage.md) | Real FNE-AN00 GhostLock **temporary root** source exists, but its baked 5.4.295 kernel profiles **do not match** stock FNE-NX9 C431 kernel `5.4.295-qgki-ga2d8945339ca`; executing mismatched offsets can corrupt RAM. CVE-2026-21085 is **Samsung** Keymaster, not proven in HONOR KM41. Neither proves **persistent unlock**. |
 | [**Retail vs Board KM41 + XBL `0x203` result verification (2026-11-12)**](research/2026-11-12-keymaster-board-eea-identical-xbl-203-reply-not-ignored.md) | All four original signed Keymaster secure handlers — `0x202`, `0x203`, fuse gate and milestone — have **matching normalized decompiled logic** in EEA and Board. In original retail XBL, **`0x203` QSEE transport and reply must both succeed**; otherwise it returns EFI `0x50`. Original ABL propagates nonzero setter status. Does **not** establish why the prior live phone wipe remained `LOCKED`. |
 | [**Original signed DDR/Lite EDL XML command registry (2026-11-12)**](research/2026-11-12-signed-firehose-15-command-xml-dispatch-no-peekpoke.md) | **15 original XML handlers proven**: `program`, `read`, `patch`, `erase`, `firmwarewrite`, `fixgpt`, etc.; **no `peek` or `poke` handler** in the callback table. Actual `firmwarewrite` updates storage-device firmware and `fixgpt` repairs UFS LUN partition tables; **neither directly writes Keymaster lock state**. Both original binaries independently decompiled. **No permanent unlock**. |
@@ -36,6 +37,8 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Exact C431 EEA GhostLock candidate: 32 null fields and host physical address rejected](../../actions/runs/43143170752)
+- [Original matching C431 EEA kernel and kallsyms profile extractor](../../actions/runs/42530618542)
 - [Full EEA vs Board protected KM41 handler parity, four functions](../../actions/runs/43141115024)
 - [Retail VerifiedBootDxe `0x203` protected reply and transport guard](../../actions/runs/43141651329)
 - [Retail ABL PE machine instructions + XBL `0x203` end-to-end error status](../../actions/runs/43141819717)
