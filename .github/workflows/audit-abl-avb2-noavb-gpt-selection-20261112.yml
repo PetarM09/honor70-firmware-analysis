@@ -1,0 +1,58 @@
+name: HONOR70 AVB2 NOAVB GPT Dynamic Selector Original ABL Audit
+on:
+  push:
+    paths:
+      - 'tools/ghidra/Honor70AVBSelectionAndGPTGateAudit.java'
+      - '.github/workflows/audit-abl-avb2-noavb-gpt-selection-20261112.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download original SHA256 checked EEA LinuxLoader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input analysis dist
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" --name HONOR70_ABL_MODULES --dir input
+          f=$(find input -type f -name '*.efi' | while read x; do printf '%s %s\n' "$(sha256sum "$x" | cut -d' ' -f1)" "$x"; done | grep '^ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087 ' | cut -d' ' -f2-)
+          test -n "$f"
+          cp "$f" input/EEA_LinuxLoader.efi
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  input/EEA_LinuxLoader.efi' | sha256sum -c
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Fetch pinned Ghidra and check digest
+        run: |
+          curl -fL --retry 3 -o /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip
+          echo '2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  /tmp/ghidra.zip' | sha256sum -c
+          unzip -q /tmp/ghidra.zip -d dist
+          rm /tmp/ghidra.zip
+          echo "HEADLESS=$(find dist -type f -name analyzeHeadless | head -1)" >> "$GITHUB_ENV"
+      - name: Decompile original AVB2 vs NO_AVB selection and its GPT dependence
+        run: |
+          mkdir -p /tmp/fne70_oeminfo_audit
+          "$HEADLESS" /tmp/fne70_oeminfo_audit FNE70_OEMINFO             -import "$GITHUB_WORKSPACE/input/EEA_LinuxLoader.efi"             -scriptPath "$GITHUB_WORKSPACE/tools/ghidra"             -postScript Honor70AVBSelectionAndGPTGateAudit.java             -analysisTimeoutPerFile 780 -max-cpu 2 -deleteProject             > analysis/GHIDRA_STATUS.log 2>&1 || { tail -160 analysis/GHIDRA_STATUS.log; exit 1; }
+          test -s analysis/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('analysis/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt').read_text(errors='replace')
+          print('REPORT_LENGTH',len(t))
+          for line in t.splitlines():
+            if line.startswith(('===== AVB_FUNCTION','TARGET ','STRING ','  XREF','CALLER','DECOMP_FAILED')):
+              print(line)
+          for term in ('NoAVBLoad_fw_ufsdev','LoadImageAndAuthVB2','vbmeta_a','vbmeta','Is_VERIFIED_BOOT_2','VERIFIED_BOOT_ENABLED','Milestone','FUN_00003144'):
+            print('TERM',term,'COUNT',t.count(term))
+          PY
+      - name: Preserve raw Ghidra evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_AVB2_NOAVB_GPT_SELECTOR_ORIGINAL_EEA_ABL
+          path: analysis/
+          retention-days: 14
