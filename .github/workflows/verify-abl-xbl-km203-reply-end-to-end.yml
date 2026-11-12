@@ -1,0 +1,48 @@
+name: HONOR70 Signed XBL KM203 Reply to ABL UI Error Propagation
+on:
+  push:
+    paths:
+      - 'tools/verify_honor70_xbl_203_reply_abl_ui_error_flow.py'
+      - '.github/workflows/verify-abl-xbl-km203-reply-end-to-end.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original exact EEA ABL EFI and VerifiedBootDxe decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/abl src/xbl verified report
+          gh run download 42527588771 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_ABL_MODULES --dir src/abl
+          gh run download 42538078141 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_VERIFIEDBOOT_DXE_GHIDRA --dir src/xbl
+          find src/abl -type f -name '*.efi' -print0 | while IFS= read -r -d '' file; do
+            if [ "$(sha256sum "$file" | cut -d' ' -f1)" = "ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087" ]; then
+              cp "$file" verified/LinuxLoader.efi
+            fi
+          done
+          echo 'ebe7d430a39e7cb4e3b882745330677ec0f1972481fd4e738d84ecdc969db087  verified/LinuxLoader.efi' | sha256sum -c
+          test -s "$(find src/xbl -name VERIFIEDBOOT_DXE_GHIDRA.txt -type f -print -quit)"
+      - name: Verify original byte-backed ABL error gates and XBL 0x203 reply guard
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6'
+          python3 -m py_compile tools/verify_honor70_xbl_203_reply_abl_ui_error_flow.py
+          python3 tools/verify_honor70_xbl_203_reply_abl_ui_error_flow.py \
+            --abl verified/LinuxLoader.efi \
+            --xbl-ghidra "$(find src/xbl -name VERIFIEDBOOT_DXE_GHIDRA.txt -type f -print -quit)" \
+            --output report/ABL_XBL_KM203_RESPONSE_PROPAGATION.json
+          python3 -m json.tool report/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ORIGINAL_EEA_XBL_KM203_TO_ABL_ERROR_PATH
+          path: report/*.json
+          retention-days: 14
