@@ -97,6 +97,7 @@ def inspect_instructions(function_name,instructions,all_symbols):
     return {
       'name':function_name,
       'decoded_instruction_count':len(instructions),
+      'prologue_instructions':instructions[:32],
       'direct_bl_count':len(calls),
       'direct_calls':calls,
       'direct_sp_reference_samples':sp_direct,
