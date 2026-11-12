@@ -1,0 +1,48 @@
+name: HONOR70 Inspect Original ABL RDMode V1 Verification Helper
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-abl-rdmode-v1-helper-20261112.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download original ABL signed-firmware Ghidra evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh run download 43124806546 --repo "$GITHUB_REPOSITORY" --name HONOR70_OEMINFO_FASTBOOT_UNLOCK_GATE_GHIDRA --dir src
+          test -s src/HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt
+      - name: Extract exact OEMINFO RD-mode v1 function and nearest caller
+        run: |
+          python3 - <<'PY'
+          import re,hashlib
+          from pathlib import Path
+          b=Path('src/HONOR70_OEMINFO_FASTBOOT_STATE_PROVENANCE.txt').read_bytes()
+          s=b.decode('utf-8','replace')
+          print('ORIGINAL_GHIDRA_SHA256',hashlib.sha256(b).hexdigest())
+          for addr in ['1bb68','15690','1bf74','12cf8','12e90','13008']:
+            marker='=============== TARGET 0x'+addr+' ==============='
+            a=s.find(marker)
+            if a<0:raise RuntimeError('Missing signed ABL target '+addr)
+            z=s.find('=============== TARGET ',a+len(marker))
+            body=s[a:z if z>=0 else None]
+            Path('report/ABL_RD_MODE_'+addr+'.txt').write_text(body)
+            print('===== ABL RD_MODE FUNCTION',addr,'SIZE',len(body))
+            print(body[:26000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_RD_MODE_V1_SOURCE_DECOMP
+          path: report/*.txt
+          retention-days: 14
