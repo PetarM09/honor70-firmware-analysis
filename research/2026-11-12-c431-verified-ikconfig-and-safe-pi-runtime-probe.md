@@ -36,6 +36,10 @@ https://android.googlesource.com/platform/bionic/+/refs/heads/main/libc/SECCOMP_
 
 The official [Android app sandbox](https://source.android.com/docs/security/app-sandbox) still uses seccomp-BPF and SELinux, and device/vendor-specific additional restrictions are possible. The earlier real-phone snapshot observed `Seccomp:0` for an **ADB-shell-spawned cat process**; it does not prove arbitrary third-party app syscall permission.
 
+## Android 2026-11 security classification
+
+The Android Open Source Vulnerabilities record [ASB-A-496407345](https://osv.dev/vulnerability/ASB-A-496407345) (published 2026-11-01, last modified 2026-11-11) lists CVE-2026-43499 as **High**, local elevation of privilege requiring no additional execution privileges or user interaction, with a reported Android kernel fix SPL of **2026-11-05**. The observed user's C431 handset reported June 2026 patch and original kernel disassembly still contains the wrong-task `remove_waiter` code. This strengthens the *candidate vulnerability* assessment; it does **not** establish a reproducing root exploit on this precise retail kernel or show whether HONOR backported unrelated controls.
+
 ## Safely test an uncontended PI futex (NO GhostLock vulnerability trigger)
 
 A separate [successful GitHub Actions build run 43232829028](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43232829028) generated artifact **`HONOR70_SAFE_PI_FUTEX_ARM64_PROBE`**. It contains statically linked ARM64 executable `fne_pi_futex_probe_arm64` with SHA256:
