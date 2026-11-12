@@ -1,0 +1,56 @@
+name: HONOR70 Validate External Linux 5.4.295 C431 Profile v0.2
+
+on:
+  push:
+    paths:
+      - 'profiles/fne-nx9-c431-8.0.0.290.profile-v0.2.json'
+      - 'tools/verify_c431_profile_v02_with_external_5_4_295.py'
+      - 'tools/test_verify_c431_profile_v02_with_external_5_4_295.py'
+      - '.github/workflows/verify-c431-profile-v02-external-5.4.295.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail closed on guessed offsets and unsupported root claims
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_c431_profile_v02_with_external_5_4_295.py
+          python3 -m unittest discover -s tools \
+            -p 'test_verify_c431_profile_v02_with_external_5_4_295.py' -v
+      - name: Download source-diff and signed C431 OEM compile flag artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/external evidence/c431 report
+          gh run download 43299436582 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_EXTERNAL_LINUX_5_4_295_ORIGIN_COMPARISON \
+            --dir evidence/external
+          gh run download 43299954797 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_C431_SIGNED_OEM_ABI_FEATURE_FLAGS \
+            --dir evidence/c431
+      - name: Validate C431 v0.2 profile against two independent sources
+        run: |
+          set -euo pipefail
+          python3 tools/verify_c431_profile_v02_with_external_5_4_295.py \
+            --v1 profiles/fne-nx9-c431-8.0.0.290.profile.json \
+            --v2 profiles/fne-nx9-c431-8.0.0.290.profile-v0.2.json \
+            --source evidence/external/LINUX_5_4_295_VS_HONOR_FNE_C431_SOURCE_COMPARISON.json \
+            --kconf evidence/c431/C431_ORIGINAL_OEM_ABI_COMPILE_FLAGS.json \
+            --out report/C431_PROFILE_V02_TRUSTED_SOURCE_VALIDATION.json \
+            | tee report/VALIDATION_SUMMARY.txt
+          python3 -m json.tool report/C431_PROFILE_V02_TRUSTED_SOURCE_VALIDATION.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_C431_PROFILE_V02_SOURCE_VERIFIED
+          path: report/
+          if-no-files-found: error
+          retention-days: 30
