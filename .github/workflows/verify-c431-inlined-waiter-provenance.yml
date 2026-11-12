@@ -1,0 +1,55 @@
+name: HONOR70 Exact C431 Inlined Waiter Pointer Provenance
+
+on:
+  push:
+    paths:
+      - 'tools/verify_exact_c431_inlined_waiter_provenance.py'
+      - 'tools/test_verify_exact_c431_inlined_waiter_provenance.py'
+      - '.github/workflows/verify-c431-inlined-waiter-provenance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run nine synthetic fail-closed original-code tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_exact_c431_inlined_waiter_provenance.py
+          python3 -m unittest discover -s tools \
+            -p 'test_verify_exact_c431_inlined_waiter_provenance.py' -v
+      - name: Download original C431 binary report and SHA-verified HONOR GPL source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/binary evidence/gpl report
+          gh run download 43281477811 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_C431_FUTEX_WAITER_STACK_STATIC_EVIDENCE \
+            --dir evidence/binary
+          gh run download 43162235496 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FENNIE_8_CORE_KERNEL_SOURCES \
+            --dir evidence/gpl
+          echo '71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106  evidence/gpl/FENNIE/kernel_futex_c.txt' | sha256sum -c
+      - name: Prove original do_futex waiter/q source and register flow
+        run: |
+          set -euo pipefail
+          python3 tools/verify_exact_c431_inlined_waiter_provenance.py \
+            --original-report evidence/binary/C431_FUTEX_WAITER_SOURCE_BINARY_STACK_EVIDENCE.json \
+            --fennie-futex evidence/gpl/FENNIE/kernel_futex_c.txt \
+            --out report/C431_INLINED_WAITER_FRAME_POINTER_EVIDENCE.json \
+            | tee report/FRAME_POINTER_SUMMARY.txt
+          python3 -m json.tool report/C431_INLINED_WAITER_FRAME_POINTER_EVIDENCE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_VERIFIED_LOCAL_WAITER_PROVENANCE
+          path: report/
+          if-no-files-found: warn
+          retention-days: 30
