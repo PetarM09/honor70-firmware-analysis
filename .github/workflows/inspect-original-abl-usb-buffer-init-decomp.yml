@@ -1,0 +1,48 @@
+name: HONOR70 Inspect USB RX Buffer Initialization Exact Source
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-original-abl-usb-buffer-init-decomp.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Fetch original signed EEA ABL initialization decompiler output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source report
+          gh run download 43130869693 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_ORIGINAL_FASTBOOT_USB_RX_BUFFER_SIZE --dir source
+          test -s source/HONOR70_FASTBOOT_USB_RX_BUFFER_SETUP.txt
+      - name: Inspect assignment of DAT_001C1738 and receive length 0x1FF
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          s=Path('source/HONOR70_FASTBOOT_USB_RX_BUFFER_SETUP.txt').read_text(errors='replace')
+          print('ORIGINAL_GHIDRA_REPORT_SHA',hashlib.sha256(s.encode()).hexdigest())
+          for addr in ['000205d0','000207b4','00020750','00020830',
+                       '00020c00','00020d6c','00020e4c','00020328','00020794']:
+            token='===== RX_INIT_TARGET '+addr+' ====='
+            i=s.find(token)
+            if i<0:
+              print('MISSING',addr)
+              continue
+            j=s.find('===== RX_INIT_TARGET ',i+len(token))
+            block=s[i:j if j>=0 else None]
+            Path('report/'+addr+'.txt').write_text(block)
+            print('===== EXACT_INIT',addr,'BYTES',len(block))
+            print(block[:37000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_USB_RX_INITIALIZER_EXACT_GHIDRA
+          path: report/*.txt
+          retention-days: 14
