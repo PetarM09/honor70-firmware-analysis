@@ -1,0 +1,42 @@
+name: HONOR70 C431 Live DTB13 DTBO18 Profile v0.5 Validation
+
+on:
+  push:
+    paths:
+      - 'profiles/fne-nx9-c431-8.0.0.290.profile-v0.5.json'
+      - 'profiles/evidence/fne-nx9-c431-phone-boot-dtb13-dtbo18-2026-11-12.json'
+      - 'profiles/evidence/fne-nx9-c431-uploaded-fdt-index-selected-sha-manifest-2026-11-12.json'
+      - 'tools/verify_c431_selected_fdt_profile_v05.py'
+      - 'tools/test_verify_c431_selected_fdt_profile_v05.py'
+      - '.github/workflows/verify-c431-profile-v05-selected-fdt.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run fail-closed profile selector tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_c431_selected_fdt_profile_v05.py
+          python3 -m unittest discover -s tools \
+            -p 'test_verify_c431_selected_fdt_profile_v05.py' -v
+      - name: Validate exact owner-reported boot indices against uploaded FDT manifest
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          python3 tools/verify_c431_selected_fdt_profile_v05.py \
+            --source profiles/evidence/fne-nx9-c431-uploaded-fdt-index-selected-sha-manifest-2026-11-12.json \
+            --out report/C431_PROFILE_V05_BOOT_REPORTED_DTB_SELECTION.json \
+            | tee report/SUMMARY.txt
+          python3 -m json.tool report/C431_PROFILE_V05_BOOT_REPORTED_DTB_SELECTION.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_C431_PROFILE_V05_BOOT_REPORTED_FDT_SELECTION
+          path: report/
+          retention-days: 30
