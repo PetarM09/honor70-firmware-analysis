@@ -1,0 +1,355 @@
+{
+  "schema_version": 1,
+  "profile_id": "honor70-fne-nx9-c431-8.0.0.290-5.4.295-ga2d8945339ca",
+  "profile_version": "0.6.0",
+  "status": "experimental_static_verified_non_executable",
+  "description": "C431 signed-kernel layout inventory with owner reported DTB13/DTBO18 and byte-verified external/local Device Tree fixup compatibility. Not an exploit or root.",
+  "target": {
+    "manufacturer": "HONOR",
+    "model": "FNE-NX9",
+    "device": "HNFNE",
+    "region": "C431",
+    "magicos": "8.0.0.290",
+    "android_sdk": 34,
+    "android_major": 14,
+    "kernel_uname_release": "5.4.295-qgki-ga2d8945339ca"
+  },
+  "provenance": {
+    "boot_img_sha256": "5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256",
+    "extracted_kernel_image_sha256": "bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece",
+    "embedded_ikconfig_sha256": "99107cb0eb989d1381321f560664c78bf4b47ebdecb2cc33e9a7d430e1e973c4",
+    "do_futex_original_function_sha256": "dafc0e0138313ba88c2bbaad6fdd71509561325ce232bcbd19ea1e4f98a6108a",
+    "evidence_workflow_runs": [
+      43229427485,
+      43231676902,
+      43275022781,
+      43282279278,
+      43283106736,
+      43287116480,
+      43291260101,
+      43303005963
+    ]
+  },
+  "confirmed_binary_offsets_bytes": {
+    "rt_mutex_waiter.task": 48,
+    "rt_mutex_waiter.lock": 56,
+    "rt_mutex_waiter.prio": 64,
+    "rt_mutex_waiter.deadline": 72,
+    "task_struct.prio": 284,
+    "task_struct.dl.deadline": 1160,
+    "task_struct.pi_lock": 2412,
+    "task_struct.pi_waiters.rb_root": 2424,
+    "task_struct.pi_waiters.rb_leftmost": 2432,
+    "task_struct.pi_blocked_on": 2448
+  },
+  "confirmed_stack_evidence": {
+    "do_futex_waiter_pointer_expression": "x29 - 0xd0",
+    "do_futex_waiter_post_prologue_sp_expression": "sp + 0xf0",
+    "do_futex_futex_q_pointer_expression": "sp + 0x70",
+    "caller_function_va": "0xffffffc0103c84e4",
+    "futex_requeue_direct_proxy_call_site": "0xffffffc0103cb3f8",
+    "select_overlap_bytes_if_common_entry_sp": 80,
+    "select_overlap_is_dynamic_proof": false
+  },
+  "compiled_kernel_config": {
+    "CONFIG_FUTEX": "y",
+    "CONFIG_FUTEX_PI": "y",
+    "CONFIG_RT_MUTEXES": "y",
+    "CONFIG_RANDOMIZE_BASE": "y",
+    "CONFIG_VMAP_STACK": "y",
+    "CONFIG_CFI_CLANG": "y",
+    "CONFIG_CFI_PERMISSIVE": "n",
+    "CONFIG_STACKPROTECTOR_STRONG": "y",
+    "CONFIG_HARDENED_USERCOPY": "y",
+    "CONFIG_SECCOMP_FILTER": "y",
+    "CONFIG_SECURITY_SELINUX": "y"
+  },
+  "known_phone_results": {
+    "app_uncontended_pi_lock_unlock": "APP_PI_FUTEX_OK",
+    "app_invalid_same_address_cmp_requeue_pi": "REQUEUE_PI_EARLY_GUARD_OK",
+    "actual_vulnerable_rollback_observed": false,
+    "kernel_use_after_free_observed": false,
+    "temporary_root_observed": false,
+    "authenticated_bootloader_unlock_observed": false,
+    "profile_v01_identity_match": "PROFILE_MODEL_KERNEL_ANDROID_MATCH",
+    "phone_build_incremental": "8.0.0.290C431E4R3P1"
+  },
+  "unresolved_required_fields": {
+    "kernel_phys_load": null,
+    "actual_runtime_kernel_slide": null,
+    "exact_cred_layout": null,
+    "exact_task_cred_fields": null,
+    "exact_task_seccomp_fields": null,
+    "exact_futex_q_complete_layout": null,
+    "actual_select_user_controlled_stack_write": null,
+    "reliable_dangling_waiter_lifetime": null,
+    "proven_kernel_memory_primitive": null,
+    "controlled_privilege_transition": null
+  },
+  "checks": {
+    "model_kernel_android_identity_supported": true,
+    "signed_kernel_source_provenance_supported": true,
+    "exploit_loader_enabled": false,
+    "active_uaf_trigger_enabled": false,
+    "kernel_memory_write_enabled": false,
+    "root_installation_enabled": false,
+    "persistent_unlock_enabled": false,
+    "full_abi_established": false,
+    "run_ready_ghostlock_profile": false,
+    "evidence_boot_header_verified": true,
+    "absolute_kernel_phys_load_proven": false,
+    "actual_runtime_kernel_slide_proven": false,
+    "runnable_ghostlock_root_proven": false,
+    "uploaded_vendor_boot_image_structurally_valid": true,
+    "uploaded_dtbo_entries_structurally_valid": true,
+    "vendor_boot_physical_load_live_attested": false,
+    "vendor_boot_fdt_active_overlay_attested": false,
+    "boot_reported_selected_dtb_indices_observed": true,
+    "reported_indices_cross_referenced_to_uploaded_fdt_sha": true,
+    "actual_active_merged_fdt_read": false,
+    "reported_boardid_cross_referenced_to_selected_overlay": true,
+    "selected_base_and_overlay_external_fixups_resolve": true,
+    "selected_base_and_overlay_local_fixup_bounds_verified": true,
+    "actual_kernel_phys_load_from_fdt": false,
+    "actual_merged_fdt_verified": false
+  },
+  "scope_note": "Profile v0.6 adds 165/165 valid external phandle symbols, 468 external and 262 local fixup sites, and 137/137 valid overlay fragment targets for uploaded DTB13 + DTBO18. It does not prove full fdtoverlay merge, live memory map, physical load, stack/UAF/root. All ten unresolved fields remain null.",
+  "external_linux_reference": {
+    "release_tag": "linux-5.4.295",
+    "archive_name": "linux-5.4.295.tar.xz",
+    "archive_sha256": "c48158f7735668aac78b9d74bb3616f57a4ea0816ca09f7db83f7834d705b6a9",
+    "kernel_makefile_version": "5.4.295",
+    "kernel_makefile_extraversion": "",
+    "source_comparison_workflow_run": 43299436582,
+    "compared_against_honor_fennie_gpl_base": "5.4.242",
+    "same_source_bodies": [
+      "futex_requeue",
+      "futex_wait_requeue_pi",
+      "remove_waiter",
+      "rt_mutex_start_proxy_lock"
+    ],
+    "full_file_byte_comparison": {
+      "kernel/futex.c": false,
+      "kernel/locking/rtmutex.c": false,
+      "kernel/locking/rtmutex_common.h": true,
+      "include/linux/sched.h": false,
+      "Makefile": false
+    },
+    "core_source_5_4_295_is_signed_c431_source": false,
+    "safe_to_transfer_struct_ABI_from_generic_source": false,
+    "generic_task_sched_vendor_features_missing": [
+      "ANDROID_KABI_RESERVE",
+      "CONFIG_HN_VIP_THREAD",
+      "CONFIG_HONOR_SCHED_VIP"
+    ],
+    "qualification": "Function text equality does not establish structure layout, compiler LTO decisions, C431 trusted boot image or runtime kernel memory geometry."
+  },
+  "confirmed_compiled_oem_config": {
+    "CONFIG_HN_VIP_THREAD": "y",
+    "CONFIG_HN_RTG": "y",
+    "CONFIG_HN_QOS_THREAD": "y",
+    "CONFIG_HN_RTG_FRAME": "y",
+    "CONFIG_ANDROID_VENDOR_HOOKS": "y",
+    "CONFIG_HONOR_SCHED_VIP": "n",
+    "CONFIG_LTO_CLANG": "y",
+    "CONFIG_THINLTO": "y",
+    "CONFIG_CFI_CLANG": "y",
+    "source": "original signed C431 embedded IKCONFIG",
+    "evidence_workflow_run": 43299954797
+  },
+  "verified_boot_image_header": {
+    "boot_image_header_version": 3,
+    "boot_image_header_size_bytes": 1580,
+    "boot_kernel_size_bytes": 47041024,
+    "boot_ramdisk_size_bytes": 62,
+    "boot_kernel_file_offset_bytes": 4096,
+    "arm64_magic": "ARM\\x64",
+    "arm64_text_offset_hex": "0x80000",
+    "arm64_image_size_bytes": 51261440,
+    "arm64_flags_hex": "0xa",
+    "arm64_endianness": "little",
+    "arm64_page_size_selector": 1,
+    "arm64_physical_placement_selector": 1,
+    "arm64_physical_alignment_bytes": 2097152,
+    "boot_has_kernel_offset_field": false,
+    "boot_has_dtb_addr_size_fields": false,
+    "valid_fdt_candidates_in_original_boot": 0,
+    "valid_fdt_candidates_in_extracted_kernel": 0,
+    "vendor_boot_dtb_examined": false,
+    "physical_kernel_base_measured": false,
+    "debug_config": {
+      "CONFIG_DEBUG_INFO": "y",
+      "CONFIG_DEBUG_INFO_BTF": "n",
+      "CONFIG_DEBUG_INFO_DWARF4": "n",
+      "CONFIG_DEBUG_INFO_DWARF5": "not_listed",
+      "CONFIG_KALLSYMS": "y",
+      "CONFIG_KALLSYMS_ALL": "y"
+    },
+    "original_image_DWARF_or_BTF_extracted": false,
+    "evidence_workflow_run": 43303005963,
+    "evidence_status": "SHA_verified_original_C431_boot_and_Image_static_header_only"
+  },
+  "uploaded_vendor_boot_dtbo_evidence": {
+    "vendor_boot_partition": {
+      "image_sha256": "ca0ef34c45c55e91bd8da2bf02a0c5d9f359feb5e5d7873ee2aab1f61d903f46",
+      "image_size_bytes": 100663296,
+      "container_format": "VNDRBOOT",
+      "header_version": 3,
+      "header_size_bytes": 2112,
+      "page_size_bytes": 4096,
+      "kernel_addr_declared_hex": "0x8000",
+      "ramdisk_addr_declared_hex": "0x1000000",
+      "dtb_addr_declared_hex": "0x1f00000",
+      "vendor_ramdisk_size_bytes": 34656434,
+      "dtb_file_offset_bytes": 34664448,
+      "dtb_payload_size_bytes": 8372423,
+      "dtb_payload_sha256": "f743cd276035b69d4ab19b1bbeb3784c9f682c4b2618f51fc651ee698fe0eb58",
+      "structurally_valid_embedded_fdt_entries": 18,
+      "full_soc_fdt_entries": 17,
+      "base_qcom_yupik_fdt_indices": [
+        11,
+        13
+      ],
+      "qcom_yupik_memory_reg": [
+        {
+          "start": "0x0",
+          "size": "0x0",
+          "interpretation": "placeholder, not runtime DRAM"
+        }
+      ],
+      "qcom_yupik_reserved_hyp": {
+        "start": "0x80000000",
+        "size": "0x600000"
+      },
+      "header_kernel_addr_equals_runtime_physical_load_proven": false,
+      "boot_reported_dtb_index": 13
+    },
+    "dtbo_partition": {
+      "image_sha256": "ecb2e289d49b6e51f89c0e4a16233521bc87a38c16c36753faa8a4a2fddca328",
+      "image_size_bytes": 25165824,
+      "format_magic": "0xd7b7ab1e",
+      "entry_count": 29,
+      "valid_fdt_entries": 29,
+      "fne_nx9_overlay_count": 10,
+      "distinct_fne_nx9_model_count": 9,
+      "fne_nx9_entry_indices": [
+        1,
+        5,
+        6,
+        11,
+        14,
+        18,
+        20,
+        24,
+        25,
+        27
+      ],
+      "fne_nx9_models": [
+        "FNE-NX9-781-200",
+        "FNE-NX9-781-201",
+        "FNE-NX9-781-202",
+        "FNE-NX9-781-203",
+        "FNE-NX9-781-204",
+        "FNE-NX9-781-205",
+        "FNE-NX9-781-206",
+        "FNE-NX9-781-207",
+        "FNE-NX9-781-208"
+      ],
+      "active_overlay_index": null,
+      "active_fdt_observed": false,
+      "boot_reported_dtbo_index": 18,
+      "boot_reported_selected_overlay_model": "FNE-NX9-781-208"
+    },
+    "image_authenticated_to_signed_original_vendor_factory_release": false,
+    "status": "structural_readonly_validation_only",
+    "evidence_report": "research/2026-11-12-exact-fne-nx9-vendor-boot-dtbo-upload-audit.md"
+  },
+  "on_device_boot_tree_selection": {
+    "source": "owner copied adb shell getprop (non-root) on real phone, 2026-11-12",
+    "bootloader_reported_base_dtb_index": 13,
+    "bootloader_reported_dtbo_index": 18,
+    "reported_hardware_version": "HN2FNEM03_VA",
+    "reported_product_hardwareversion": "HN2FNEM02",
+    "reported_boardid": "8790",
+    "reported_board_platform": "lahaina",
+    "reported_boot_vendor_sku": "yupik",
+    "reported_product_hardware_sku": "FNE-N29",
+    "selected_base_dtb_from_uploaded_vendor_boot": {
+      "table_index": 13,
+      "model": "Qualcomm Technologies, Inc. Yupik SoC",
+      "compatible": [
+        "qcom,yupik"
+      ],
+      "sha256": "bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9",
+      "file_offset_hex": "0x27290df",
+      "length_bytes": 493552
+    },
+    "selected_overlay_from_uploaded_dtbo": {
+      "table_index": 18,
+      "model": "Honor Technologies, Inc. FNE-NX9-781-208",
+      "compatible": [
+        "qcom,yupik-qrd",
+        "qcom,yupik",
+        "qcom,qrd"
+      ],
+      "sha256": "c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc",
+      "file_offset_hex": "0x5726f6",
+      "length_bytes": 318053,
+      "alternate_same_model_table_index_not_selected": 25,
+      "qcom_board_id_hex": "0x2256",
+      "qcom_board_id_decimal": 8790,
+      "hardware_version": "HN2FNEM03_VA",
+      "board_name": "FNE_NX9_LV_VA_SCP",
+      "alternative_index_25_board_id_hex": "0x224c",
+      "alternative_index_25_board_id_decimal": 8780
+    },
+    "matching_reported_index_to_supplied_partition_table": true,
+    "actual_active_merged_fdt_directly_read": false,
+    "uploaded_partition_sha_verified_against_live_partitions": false,
+    "provenance_note": "On-device ro.boot indices are authentic observed property strings; correspondence assumes same image table ordering on phone. Non-root proc/device-tree read was denied.",
+    "board_id_matches_dtbo_18": true,
+    "board_id_mismatches_dtbo_25": true
+  },
+  "selected_fdt_overlay_fixup_audit": {
+    "source": "locally parsed original uploaded base_yupik_entry_13.dtb and FNE-NX9_781-208_entry_18.dtbo bytes",
+    "verified_source": {
+      "base_fdt_sha256": "bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9",
+      "selected_overlay_sha256": "c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc"
+    },
+    "base_exported_symbols_count": 1574,
+    "external_fixup_labels_resolved": 165,
+    "external_fixup_patch_sites_valid": 468,
+    "overlay_fragment_targets_resolved": 137,
+    "overlay_fragments_total": 137,
+    "local_fixup_nodes": 207,
+    "local_fixup_patch_sites_valid": 262,
+    "fragments_targeting_memory": 0,
+    "fragments_targeting_reserved_memory": 1,
+    "reserved_memory_overlay": {
+      "fragment": "/fragment@130",
+      "target": "/reserved-memory",
+      "node": "removed_region@c0000000",
+      "reg_identical_to_base": true,
+      "no_map_identical_to_base": true
+    },
+    "base_memory_reg": [
+      {
+        "start": "0x0",
+        "size": "0x0"
+      }
+    ],
+    "base_hyp_reserved": [
+      {
+        "start": "0x80000000",
+        "size": "0x600000"
+      }
+    ],
+    "full_fdtoverlay_merge_applied_and_validated": false,
+    "actual_live_merged_fdt_attested": false,
+    "signed_device_partition_byte_attested": false,
+    "kernel_phys_load_derived_from_source": false,
+    "runtime_slide_known": false,
+    "audit_manifest": "profiles/evidence/fne-nx9-c431-dtb13-dtbo18-fixup-integrity-2026-11-12.json",
+    "audit_script": "tools/audit_fne_c431_selected_fdt_overlay.py"
+  }
+}
