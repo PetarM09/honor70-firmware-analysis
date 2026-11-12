@@ -1,0 +1,42 @@
+name: HONOR70 KM41 EEA vs Board Secure State Guards Full Crosscheck
+on:
+  push:
+    paths:
+      - 'tools/compare_signed_km41_retail_board_unlock_guards.py'
+      - '.github/workflows/compare-signed-km41-guards-board-eea.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original signed EEA and HMT Board KM41 decompiler evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/eea evidence/board report
+          gh run download 42540518094 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_KM41_WRITE_FUSE_GUARD --dir evidence/eea
+          gh run download 42605355587 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_BOARD_KM41_EXACT_WRITE_MILESTONE --dir evidence/board
+          test -s evidence/eea/KM41_WRITE_MILESTONE_DECOMPILE.txt
+          test -s evidence/board/BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt
+      - name: Compare fuse security guards and each transport state handler
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/compare_signed_km41_retail_board_unlock_guards.py
+          python3 tools/compare_signed_km41_retail_board_unlock_guards.py \
+            --eea evidence/eea/KM41_WRITE_MILESTONE_DECOMPILE.txt \
+            --board evidence/board/BOARD_KM41_WRITE_MILESTONE_DECOMPILE.txt \
+            --out report/ORIGINAL_EEA_BOARD_KM41_SECURE_GATES.json
+          python3 -m json.tool report/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_EEA_BOARD_202_203_FUSE_MILESTONE_GUARDS
+          path: report/*.json
+          retention-days: 14
