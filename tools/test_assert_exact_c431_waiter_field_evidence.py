@@ -16,6 +16,13 @@ RTMUTEX=b"""void rt_mutex_init_waiter(struct rt_mutex_waiter *waiter)
 {
  waiter->task = NULL;
 }
+void task_blocks_on_rt_mutex(struct rt_mutex_waiter *waiter, struct task_struct *task, struct rt_mutex *lock)
+{
+ waiter->task = task;
+ waiter->lock = lock;
+ waiter->prio = task->prio;
+ waiter->deadline = task->dl.deadline;
+}
 """
 
 def binary():
@@ -34,7 +41,7 @@ class TestEvidence(unittest.TestCase):
    return checker.verify(data if data is not None else binary(),w,r)
  def test_all_ten_instruction_sites_pass(self):
   report=self.verify_fixture()
-  self.assertEqual(report['source_and_machine_code_assertions_passed'],10)
+  self.assertEqual(report['source_and_machine_code_assertions_passed'],19)
   self.assertFalse(report['full_ghostlock_profile_ready'])
  def test_wrong_waiter_lock_read_fails(self):
   data=binary()
