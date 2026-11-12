@@ -1,0 +1,53 @@
+name: HONOR70 Verify Exact EEA GhostLock Candidate Safety
+
+on:
+  push:
+    paths:
+      - 'tools/audit_prior_stock_ghostlock_profile_incompleteness.py'
+      - '.github/workflows/audit-ghostlock-original-eea-profile-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover original stock C431 GhostLock profile and source extraction log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence upstream report
+          gh run download 42530618542 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_GHOSTLOCK_EXPERIMENTAL_PROFILE --dir evidence
+          find evidence -maxdepth 3 -type f -printf '%p %s bytes\n'
+          test -s evidence/HONOR70_CANDIDATE.conf
+          test -s evidence/EXTRACTOR_LOG.txt
+      - name: Retrieve version-pinned Honor FNE upstream kernel offset table
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 \
+            -o upstream/offsets.h \
+            https://raw.githubusercontent.com/MSEDGE-CORE/GhostLock-HonorFne/1cdaebd47bf34fa29d95b0b9e929f360cfe8b8fb/root/exploit/src/devices/fne/offsets.h
+          test -s upstream/offsets.h
+          sha256sum evidence/HONOR70_CANDIDATE.conf evidence/EXTRACTOR_LOG.txt upstream/offsets.h
+      - name: Validate matched EEA kernel and reject unsafe guessed profile
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_prior_stock_ghostlock_profile_incompleteness.py
+          python3 tools/audit_prior_stock_ghostlock_profile_incompleteness.py \
+            --profile evidence/HONOR70_CANDIDATE.conf \
+            --extractor-log evidence/EXTRACTOR_LOG.txt \
+            --upstream-offsets upstream/offsets.h \
+            --out report/EEA_GHOSTLOCK_PROFILE_SAFETY.json
+          python3 -m json.tool report/EEA_GHOSTLOCK_PROFILE_SAFETY.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_GHOSTLOCK_EEA_PROFILE_UNSAFE_VERIFICATION
+          path: report/*.json
+          retention-days: 14
