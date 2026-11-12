@@ -1,0 +1,45 @@
+name: HONOR70 Inspect SLock RDMode Postverify Function Semantics
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-slock-rdmode-postverify-functions.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Download signed original ABL Ghidra code report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src evidence
+          gh run download 43128891014 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_SLOCK_RDMODE_POSTVERIFY_SIGNED_ABL --dir src
+          test -s src/HONOR70_SLOCK_RDMODE_POSTVERIFY_BRANCHES.txt
+      - name: Show state persistence and signed-token post-processing
+        run: |
+          python3 - <<'PY'
+          import re, hashlib
+          from pathlib import Path
+          d=Path('src/HONOR70_SLOCK_RDMODE_POSTVERIFY_BRANCHES.txt').read_bytes()
+          s=d.decode('utf-8','replace')
+          print('ORIGINAL_GHIDRA_TEXT_SHA256',hashlib.sha256(d).hexdigest())
+          blocks=re.split(r'(?=^===== POSTVERIFY_TARGET )',s,flags=re.M)
+          for key in ['00015b08','0001381c','00017a0c','00017ca4',
+                      '00017e30','00013d58','000136a4','0001647c']:
+            block=next((x for x in blocks if x.startswith('===== POSTVERIFY_TARGET '+key)),None)
+            if block is None:raise RuntimeError('Target missing '+key)
+            Path('evidence/'+key+'.txt').write_text(block)
+            print('===== TARGET',key,'CHARS',len(block))
+            print(block[:24000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_POSTVERIFY_CODE_PATH_EVIDENCE
+          path: evidence/*.txt
+          retention-days: 14
