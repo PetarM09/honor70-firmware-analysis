@@ -45,6 +45,25 @@ Also recovered from signed C431 EEA `vmlinux`:
 
 The earlier [candidate GhostLock profile safety verification](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43143170752) detected **32 missing `null` fields** and a wrongly assumed `kernel_phys_load = 0xfffff000` taken from the GitHub Actions HOST's `/proc/iomem`, **not** from the phone. Do not execute the original FNE-AN00 exploit with those data. Unlike the genuine ARM64 code finding, this guessed physical address is incorrect source attribution.
 
+## New whole-kernel call-graph verification — four direct ARM64 `BL` links
+
+A separate [successful whole-original-kernel caller scan, run 43146638395](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43146638395) parsed the **actual executable PT_LOAD ARM64 instruction stream** from the exact stock EEA `vmlinux` ELF, rather than relying on decompiler function names. It scanned **482,252 executable direct `BL` machine instructions** and mapped targets back to the recovered original signed kernel kallsyms.
+
+[Reproducible whole-ELF scanner](../tools/trace_eea_kernel_proxy_lock_reverse_callers.py) found these exact source-backed incoming call edges:
+
+| Caller | Actual ARM64 `BL` instruction VA | Direct callee |
+|---|---|---|
+| `do_futex` | `0xffffffc0103c91a8` | `futex_requeue` at `0xffffffc0103ca4d8` |
+| `futex_requeue` | `0xffffffc0103cb3f8` | `rt_mutex_start_proxy_lock` at `0xffffffc01037e2c0` |
+| `rt_mutex_start_proxy_lock` | `0xffffffc01037e300` | `remove_waiter` at `0xffffffc01037e350` |
+| `rt_mutex_cleanup_proxy_lock` | `0xffffffc01037e698` | `remove_waiter` at `0xffffffc01037e350` |
+
+There is also another inbound `BL` to `remove_waiter` from the signed `rt_mutex_slowlock$...` function at `0xffffffc01192ac30`. The location of these direct branches and the destination's `mrs x20,sp_el0` are all evidence **from the original C431 EEA kernel**.
+
+The result **closes a prior uncertainty**: it is not merely a dormant uncalled function; the actual `do_futex → futex_requeue → rt_mutex_start_proxy_lock → remove_waiter` branch-call chain exists in the signed retail executable. The **runtime predicate** that leads into the vulnerable cancellation/rollback branch, and its reproducible unprivileged triggerability on this build, **have not been established**. No exploitability claim, kernel root or persistent unlock follows solely from an incoming branch.
+
+The first implementation of the whole-kernel workflow incorrectly invoked the older per-function audit and checked the wrong JSON filename; the corrected workflow succeeded as run 43146638395. A further source assertion of all four exact edges was committed to the scanner so future runs fail closed on any firmware/analysis drift.
+
 ## 2. ALL 67 original, registered Keymaster handlers inspected
 
 [Source-pinned GitHub run 43144963456](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43144963456) completed successfully. It read the original signed retail `km41.mbn` registration table (`0x138580`; 67 entries, 16 bytes each) and decompiled **all 67 actual registered handlers**, checking direct software fuse, persistent storage and fuse-blow calls.
