@@ -1,0 +1,43 @@
+name: HONOR70 C431 Selected FDT Profile v0.6 Evidence
+
+on:
+  push:
+    paths:
+      - 'profiles/fne-nx9-c431-8.0.0.290.profile-v0.6.json'
+      - 'profiles/evidence/fne-nx9-c431-dtb13-dtbo18-fixup-integrity-2026-11-12.json'
+      - 'tools/verify_c431_profile_v06_selected_overlay_fixups.py'
+      - 'tools/test_verify_c431_profile_v06_selected_overlay_fixups.py'
+      - '.github/workflows/verify-c431-profile-v06-overlay-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate eight fail-closed original C431 FDT proof gates
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_c431_profile_v06_selected_overlay_fixups.py
+          python3 -m unittest discover -s tools \
+            -p 'test_verify_c431_profile_v06_selected_overlay_fixups.py' -v
+      - name: Match v0.6 profile against original selected FDT report
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          python3 tools/verify_c431_profile_v06_selected_overlay_fixups.py \
+            --old profiles/fne-nx9-c431-8.0.0.290.profile-v0.5.json \
+            --new profiles/fne-nx9-c431-8.0.0.290.profile-v0.6.json \
+            --report profiles/evidence/fne-nx9-c431-dtb13-dtbo18-fixup-integrity-2026-11-12.json \
+            --out report/C431_PROFILE_V06_SELECTED_FDT_RELOCATION_EVIDENCE.json \
+            | tee report/SUMMARY.txt
+          python3 -m json.tool report/C431_PROFILE_V06_SELECTED_FDT_RELOCATION_EVIDENCE.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_C431_PROFILE_V06_SELECTED_FDT_EVIDENCE
+          path: report/
+          retention-days: 30
