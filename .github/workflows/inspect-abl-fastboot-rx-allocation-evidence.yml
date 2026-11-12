@@ -1,0 +1,49 @@
+name: HONOR70 Inspect Fastboot RX Buffer Real Capacity
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-abl-fastboot-rx-allocation-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Fetch stock ABL receive allocation decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source report
+          gh run download 43130454506 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FASTBOOT_RX_ALLOC_AND_TERMINATOR_SOURCE --dir source
+          test -s source/HONOR70_FASTBOOT_RX_BUFFER_ALLOC_AND_EVENT_TRACE.txt
+      - name: Show original receive descriptor and real allocation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          s=Path('source/HONOR70_FASTBOOT_RX_BUFFER_ALLOC_AND_EVENT_TRACE.txt').read_text(errors='replace')
+          print('ORIGINAL_GHIDRA_TEXT_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          for a in ['00020328','00020578','00022a64','00024364',
+                    '0002429c','000242ec','0002439c','00027b44',
+                    '00027ab0','00022c7c']:
+            marker='===== ALLOC_TARGET '+a+' ====='
+            i=s.find(marker)
+            if i<0:
+              print('MISSING',a)
+              continue
+            j=s.find('===== ALLOC_TARGET ',i+len(marker))
+            chunk=s[i:j if j>=0 else None]
+            Path('report/'+a+'.txt').write_text(chunk)
+            print('===== ALLOC ',a,'BYTES',len(chunk))
+            print(chunk[:34000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_ABL_FASTBOOT_RX_CAPACITY_EVIDENCE
+          path: report/*.txt
+          retention-days: 14
