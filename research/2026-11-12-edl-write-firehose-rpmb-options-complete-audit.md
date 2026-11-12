@@ -55,6 +55,14 @@ Poke is disabled on secure boot devices%c
 
 Potvrđene su adrese stringova i originalni SHA256; međutim Ghidra i direktni ARM64 ADRP/ADD pregled nisu još povezali obe poruke sa **potpuno dokazanim izvršivim permission uslovom**. Stoga je najprecizniji zaključak: programeri imaju poruke o Secure Boot zabrani ovih komandi, ali njihova stvarna dostupnost na telefonu nije izmerena. Nemamo opravdanje za pretpostavku da je `poke` prihvaćen u zaključanom uređaju.
 
+### 3a. Naknadno dokazano: stvarna XML tabela ima 15 komandi, bez peek/poke
+
+[Direktna analiza oba potpisana ELF-a](2026-11-12-signed-firehose-15-command-xml-dispatch-no-peekpoke.md) i [uspešna nezavisna verifikacija](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43137871278) potvrdile su **15 parova pokazivača na ime komande i ARM64 handler** u tabeli koja počinje na `0x148A2968`. Registrovane su uobičajene `program`/`read`/`patch`/`erase` i specijalne `firmwarewrite`/`fixgpt`, ali **nema XML `peek` ni `poke` entry-ja**. Jedini potencijalni `poke\\0` je završetak rečenice `nothing to peek/poke\\0`, ne zasebna komanda.
+
+Oba programera koriste `FUN_1482011C`, koji poziva Qualcomm SCM-style `0x82000119` i proverava sigurnosni rezultat; dokazan je njegov pozivalac koji ispisuje `Secure Boot:`, ali ne i bilo kakav legitiman RAM `poke` handler.
+
+[Potpisani DDR i Lite `firmwarewrite`/`fixgpt` handleri](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43138463218) takođe su dekompajlirani: `firmwarewrite` predaje primljeni firmware blob **storage-device firmware update** rutini, dok `fixgpt` poziva reparaciju GPT po UFS LUN. Nema direktnog Keymaster `0x203` poziva u dekompajliranim handlerima i nema dokazanog permanentnog unlock efekta.
+
 ### 4. Dodatni servisni indikatori u originalnom programeru
 
 Ghidra funkcija `FUN_1481FCCC` prikazuje identifikatore:
@@ -75,7 +83,7 @@ To su **informacije o build-u**, ne dokaz da izvršavanje sa `FACTORY_MODE` zaob
 | `frp` i OEM unlock | Standardni UFS zapis | Aktivacija dopuštenja nije zapis trajnog Keymaster lock stanja; već isprobano | **Ne ponavljati** |
 | OEMINFO zapis `0x82` / RD-mode | UFS OEMINFO se može fizički menjati | originalni ABL proverava potpisani `rdmodev1` token; 0x104 je lokalni autorizacioni kontekst, ne dokaz trajnog lock bita | **Nema validnog upisa** |
 | EDL `patch` | Menja bajtove na normalnim UFS sektorima | Nema write pristupa zaštićenom Keymaster RPC/RPMB stanju | **Nije unlock primitive** |
-| EDL `peek/poke` | Marker/podrška neodređena | Originalni programeri sadrže poruke o zabrani kada je Secure Boot aktivan; nema dokaza uspešnog privilegovanog `poke` | **Samo istraživanje, ne pisati u RAM** |
+| EDL `peek/poke` | **Nisu registrovane u izvornoj XML tabeli od 15 komandi** | Tekstovi o zabrani su prisutni, ali bez standardnog XML handlera; mogućnost indirektnog dispatch-a nije potpuno isključena | **Nema podržanog standardnog RAM peek/poke testa** |
 | GPT preimenovanje `vbmeta` | Moguća izmena particione tabele | Za HONOR nije potvrđeno dinamičko `Is_VERIFIED_BOOT_2()` prebacivanje; postojeći `NoAVBLoad_fw_ufsdev` je **post-milestone UFS updater** | **Bez dokazivog cilja, visok brick rizik** |
 | Board FNE-AN00 ABL / XBL | Potpisani binarni image možda se može fizički upisati | Retail i Board `VerifiedBootDxe` imaju identičan kod, Keymaster read/write/fuse gate gotovo identičan, Board ABL i dalje proverava unlock uslov | **Nema dokazivog bypass-a** |
 | Native `FNE-NX9-BD` Board | Tačan inženjerski paket postoji kao komercijalni zapis | Sadržaj/potpisi/antirollback nisu dostupni za proveru; nije pronađen reprodukovan permanentni unlock | **Vredi analizirati samo ako se dobije autentičan paket** |
