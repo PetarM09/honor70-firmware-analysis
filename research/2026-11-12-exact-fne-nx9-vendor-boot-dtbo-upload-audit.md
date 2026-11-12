@@ -66,3 +66,25 @@ A permission error is expected on some Android builds; do not bypass it. Reading
 The full source-file SHA-256 inventory, decoded memory regions and all 29 overlays are preserved in the local JSON report made from the two user-provided files. A reference ZIP contains the 10 exact NX9 overlays and two `qcom,yupik` base FDTs; their unchanged bytes have been SHA-256 indexed.
 
 **No kernel exploitation or device writes were performed.**
+
+## Owner's non-root live DTB read attempt (2026-11-12)
+
+The owner executed the recommended read-only commands from the macOS host:
+
+```sh
+adb exec-out cat /proc/device-tree/model
+adb exec-out cat /proc/device-tree/compatible
+adb exec-out cat /proc/device-tree/memory/reg
+```
+
+**All three failed with `cat: ... Permission denied`.** The apparent hex from piping the final error through `xxd -g 4` is simply the ASCII bytes of the error text (`63 61 74 3a` = `cat:`), **not** a device memory map. No active DTBO index, selected hardware revision, DTB memory range, bootloader physical load, or root state was discovered by this attempt.
+
+This is normal for a restricted Android `shell` context and does not establish that the stored FNE-NX9 overlays are invalid. Do not retry with kernel privilege bypass, and do not interpret the error bytes as hardware addresses.
+
+Next read-only fallback for the **specific remaining active-overlay identification question**, from the host:
+
+```sh
+adb shell getprop | grep -Ei 'board|hwrev|hwid|hardware|dtbo|dtb|sku|revision|project'
+```
+
+If present, hardware/bootloader properties may help identify the overlay family; even a `ro.boot.dtbo_idx` value, when available, needs comparison against the image's actual table and selection rules. A result is **not** proof of runtime physical load or kernel credentials. Redact serial numbers or other personal identifiers before sharing raw property output. No device operation was performed in committing this observation.
