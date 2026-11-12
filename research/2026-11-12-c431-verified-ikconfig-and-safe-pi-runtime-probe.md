@@ -70,6 +70,24 @@ Make sure the displayed device model is FNE-NX9 and the SHA256 matches before ex
 
 Expected `FUTEX_LOCK_PI returned 0`, `FUTEX_UNLOCK_PI returned 0`, `EXIT_CODE:0`. Exit 11 indicates the lock failed or is blocked; exit 12 indicates unlock failure. A blocked process may be terminated by seccomp (e.g., SIGSYS), in which case the terminal output and exit code are evidence. **This probe confirms only uncontended PI-futex behavior for the ADB-shell user, not UAF feasibility, a GhostLock exploit or root.**
 
+## ON-DEVICE RESULT — owner-reported, 2026-11-12
+
+**Result: successful.** The owner executed the exact SHA-verified safe probe on an authorized HONOR 70 FNE-NX9 from macOS over ADB. This is **user-provided terminal output**, not an independently captured device log.
+
+- Host-side SHA256 matched the published static ARM64 ELF: `753d08e6fe8b0fd3f669b52521baad91f57eef8cdc901eddc0819820eb4cc767`.
+- `adb shell getprop ro.product.model` returned `FNE-NX9`.
+- `adb push` transferred 2,344 bytes to `/data/local/tmp/fne_pi_futex_probe_arm64`.
+- The user ran the program via `adb shell`; stdout:
+  ```text
+  HONOR70 safe PI futex syscall check (NOT GhostLock)
+  FUTEX_LOCK_PI returned 0
+  FUTEX_UNLOCK_PI returned 0
+  EXIT_CODE:0
+  ```
+- **Established:** uncontended, privately scoped PI futex LOCK/UNLOCK operations succeeded under the Android ADB-shell execution context. The previously confirmed exact original C431 IKCONFIG already had `CONFIG_FUTEX_PI=y`, `CONFIG_FUTEX=y`, `CONFIG_RT_MUTEXES=y`.
+- **Not established:** whether `FUTEX_CMP_REQUEUE_PI` can be used from any particular Android security domain, whether the GhostLock rollback defect is dynamically reachable, whether a UAF could be reliably triggered, whether application processes have identical access, or whether root/bootloader unlock occurs.
+- No need to repeat this diagnostic. Future tests should examine a **new, discriminating prerequisite**; do not turn this green signal into a claim of successful exploitability.
+
 ## What remains unresolved
 
 - Actual unprivileged/ADB-shell *vulnerable rollback state* reachability on C431; source presence is not a runtime demonstration.
@@ -79,4 +97,4 @@ Expected `FUTEX_LOCK_PI returned 0`, `FUTEX_UNLOCK_PI returned 0`, `EXIT_CODE:0`
 
 Official CVE announcement: https://lists.openwall.net/linux-cve-announce/2026/05/21/7
 
-**Current state:** exact configuration and several ABI prerequisites now verified; a bounded, non-exploit phone test is ready. No GhostLock root or persistent bootloader unlock has yet been demonstrated.
+**Current state:** exact configuration and several ABI prerequisites now verified; the bounded PI-futex test has passed on the user's actual FNE-NX9 (user-provided terminal output). No GhostLock root or persistent bootloader unlock has yet been demonstrated.
