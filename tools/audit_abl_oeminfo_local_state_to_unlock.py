@@ -157,7 +157,7 @@ def main():
     data_literals=[]
     for rva in literal_rvas:
         offset=pe.get_offset_from_rva(rva)
-        blob=raw[offset:offset+150].split(b"\\x00",1)[0]
+        blob=raw[offset:offset+150].split(b"\x00",1)[0]
         data_literals.append({"rva":hex(rva),
                               "string":blob.decode("ascii","replace"),
                               "raw_hex":blob.hex()})
