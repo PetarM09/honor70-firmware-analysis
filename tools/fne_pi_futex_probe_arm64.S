@@ -61,15 +61,15 @@ failed_unlock:
 .size _start, .-_start
 
 .section .rodata
-banner: .ascii "HONOR70 safe PI futex syscall check (NOT GhostLock)\\n"
+banner: .ascii "HONOR70 safe PI futex syscall check (NOT GhostLock)\n"
 banner_end:
-ok_lock: .ascii "FUTEX_LOCK_PI returned 0\\n"
+ok_lock: .ascii "FUTEX_LOCK_PI returned 0\n"
 ok_lock_end:
-ok_unlock: .ascii "FUTEX_UNLOCK_PI returned 0\\n"
+ok_unlock: .ascii "FUTEX_UNLOCK_PI returned 0\n"
 ok_unlock_end:
-err_lock: .ascii "FUTEX_LOCK_PI failed or blocked; report exit=11\\n"
+err_lock: .ascii "FUTEX_LOCK_PI failed or blocked; report exit=11\n"
 err_lock_end:
-err_unlock: .ascii "FUTEX_UNLOCK_PI failed; report exit=12\\n"
+err_unlock: .ascii "FUTEX_UNLOCK_PI failed; report exit=12\n"
 err_unlock_end:
 .section .bss
 .balign 4
