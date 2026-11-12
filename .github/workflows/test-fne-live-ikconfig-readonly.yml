@@ -1,0 +1,23 @@
+name: FNE-NX9 Read-Only Live Kernel Config Collector Unit Tests
+
+on:
+  push:
+    paths:
+      - 'tools/collect_fne_live_ikconfig_readonly.py'
+      - 'tools/test_collect_fne_live_ikconfig_readonly.py'
+      - '.github/workflows/test-fne-live-ikconfig-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python syntax and run synthetic tests (no device required)
+        run: |
+          python3 -m py_compile tools/collect_fne_live_ikconfig_readonly.py
+          python3 -m unittest discover -s tools -p 'test_collect_fne_live_ikconfig_readonly.py' -v
