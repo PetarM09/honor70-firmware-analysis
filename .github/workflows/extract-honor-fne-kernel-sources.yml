@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'tools/extract_honor_gpl_core_sources.py'
+      - 'tools/compare_honor_oem_source_releases.py'
       - '.github/workflows/extract-honor-fne-kernel-sources.yml'
   workflow_dispatch:
 
@@ -81,5 +82,38 @@ jobs:
         if: always()
         with:
           name: HONOR70_FNE_AN00_61_CORE_KERNEL_SOURCES
+          path: report/
+          retention-days: 30
+
+  source_crosscheck:
+    name: Verify Fennie versus AN00 GPL source differences
+    needs: [fennie8, an00_61]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: HONOR70_FENNIE_8_CORE_KERNEL_SOURCES
+          path: inputs/fennie
+      - uses: actions/download-artifact@v4
+        with:
+          name: HONOR70_FNE_AN00_61_CORE_KERNEL_SOURCES
+          path: inputs/an00
+      - name: Crosscheck source hashes, vulnerable code and vendor configs
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/compare_honor_oem_source_releases.py
+          mkdir -p report
+          python3 tools/compare_honor_oem_source_releases.py \
+            --fennie-dir inputs/fennie/FENNIE \
+            --an00-dir inputs/an00/AN00 \
+            --out report/ORIGINAL_OEM_FENNIE_AN00_SOURCE_COMPARISON.json \
+            | tee report/OEM_SOURCE_CROSSCHECK_SUMMARY.txt
+          python3 -m json.tool report/ORIGINAL_OEM_FENNIE_AN00_SOURCE_COMPARISON.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_FENNIE_AN00_OEM_SOURCE_CROSSCHECK
           path: report/
           retention-days: 30
