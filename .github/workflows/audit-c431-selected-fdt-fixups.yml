@@ -1,0 +1,33 @@
+name: HONOR70 C431 FDT13 DTBO18 Fixup Integrity
+
+on:
+  push:
+    paths:
+      - 'tools/audit_fne_c431_selected_fdt_overlay.py'
+      - 'tools/test_audit_fne_c431_selected_fdt_overlay.py'
+      - '.github/workflows/audit-c431-selected-fdt-fixups.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify FDT parser and fail-closed fixup tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_fne_c431_selected_fdt_overlay.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_fne_c431_selected_fdt_overlay.py' -v
+          printf 'This CI validates the parser against synthetic FDT fixtures only.\n' > SCOPE.txt
+          printf 'Owner-uploaded original binary FDT pair was audited locally; see SHA-pinned evidence document.\n' >> SCOPE.txt
+          printf 'No online device access, live DTB, UAF, root, EDL or kernel writes.\n' >> SCOPE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_C431_FDT13_DTBO18_PARSER_CI_SCOPE
+          path: SCOPE.txt
+          retention-days: 30
