@@ -1,0 +1,61 @@
+name: HONOR70 Exact C431 RTMutex Binary ABI Inspection
+
+on:
+  push:
+    paths:
+      - 'tools/inspect_exact_c431_rtmutex_abi.py'
+      - '.github/workflows/inspect-exact-c431-rtmutex-abi.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original signed C431 stock boot, verify both hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source data report
+          gh run download 42530238358 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE --dir source
+          echo '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  source/boot.img' | sha256sum -c
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct,hashlib
+          b=Path('source/boot.img').read_bytes()
+          assert b[:8]==b'ANDROID!' and struct.unpack_from('<I',b,40)[0]==3
+          n=struct.unpack_from('<I',b,8)[0]
+          raw=b[4096:4096+n]
+          assert hashlib.sha256(raw).hexdigest()=='bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece'
+          Path('data/kernel.Image').write_bytes(raw)
+          PY
+      - name: Read original exact machine code (no exploit operation)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages \
+            vmlinux-to-elf 'capstone>=5,<6' 'pyelftools>=0.31,<0.34'
+          python3 -m py_compile tools/inspect_exact_c431_rtmutex_abi.py
+          vmlinux-to-elf data/kernel.Image data/vmlinux.elf > report/VMLINUX_RECOVERY.txt 2>&1 || {
+            tail -35 report/VMLINUX_RECOVERY.txt
+            exit 1
+          }
+          python3 tools/inspect_exact_c431_rtmutex_abi.py \
+            --boot source/boot.img --kernel data/kernel.Image \
+            --elf data/vmlinux.elf \
+            --out report/C431_ORIGINAL_RT_MUTEX_MEMORY_INSTRUCTIONS.json \
+            | tee report/C431_ORIGINAL_RT_MUTEX_SITE_SUMMARY.txt
+          python3 -m json.tool report/C431_ORIGINAL_RT_MUTEX_MEMORY_INSTRUCTIONS.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_EXACT_C431_ARM64_RT_MUTEX_ABI_SITES
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
