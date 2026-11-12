@@ -1,0 +1,23 @@
+name: HONOR70 GPL source package inventory unit tests
+
+on:
+  push:
+    paths:
+      - 'tools/inventory_honor_opensource_archive.py'
+      - 'tools/test_inventory_honor_opensource_archive.py'
+      - '.github/workflows/test-honor-source-inventory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run no-device synthetic archive inventory tests
+        run: |
+          python3 -m py_compile tools/inventory_honor_opensource_archive.py
+          python3 -m unittest discover -s tools -p 'test_inventory_honor_opensource_archive.py' -v
