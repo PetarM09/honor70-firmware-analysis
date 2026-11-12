@@ -41,6 +41,28 @@ In the ARM64 Linux kernel, **`mrs x20, sp_el0`** reads the thread's current task
 
 The disassembly does **not** by itself prove the CVE's use-after-free can be triggered, that the many required C data-structure offsets are known, or that root can be achieved. It certainly does **not** bypass verified boot or the separate Keymaster fuse gate. Do not run precompiled FNE-AN00 exploit binaries against this unverified profile.
 
+## One step further: two EEA task-lock offsets verified in machine code
+
+A separate code-level validator cross-checked the exact retail kernel disassembly against the pinned common FNE Linux 5.4 struct layout and **passed** in [CI run 43144056294](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43144056294). The machine-code identity audit also passed after excluding the unrelated BSS symbol `klist_remove_waiters` in [CI run 43143727454](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43143727454).
+
+The original exact EEA instructions:
+
+```asm
+0xffffffc01037e384  mrs x20, sp_el0
+0xffffffc01037e388  add x21, x20, #0x96c
+...
+0xffffffc01037e3cc  str xzr, [x20, #0x990]
+```
+
+Those offsets match two fields in the pinned upstream FNE 5.4 common layout:
+
+| Field | Byte offset | Origin of evidence |
+|---|---:|---|
+| `task_pi_lock` | `0x96C` | Current task pointer from `sp_el0`, `add x21,x20,#0x96c`, followed by lock helper call |
+| `task_pi_blocked_on` | `0x990` | `str xzr,[x20,#0x990]` in the same original function |
+
+This is valuable *source-level corroboration* for exactly **two** fields on this retail kernel. It does not supply a valid `GhostLock` exploitation profile, the phone-specific physical load address, the full waiter geometry, credential fields or any persistent bootloader state transition. [Reproducible checker](../tools/crosscheck_eea_remove_waiter_pi_layout.py).
+
 ## Important verified safety problems
 
 The independent audit of the extractor's `HONOR70_CANDIDATE.conf` found:
