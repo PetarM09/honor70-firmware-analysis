@@ -1,0 +1,46 @@
+name: HONOR70 Prove Keymaster 0x208 Boot State Is Not Persistent 0x203
+
+on:
+  push:
+    paths:
+      - 'tools/audit_km41_set_boot_state_runtime_vs_persistent.py'
+      - '.github/workflows/prove-km208-bootstate-not-persistent-unlock.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve signed original 67-callback inventory and eight handler decompilations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p signed/table signed/code report
+          gh run download 43144963456 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_KM41_ALL_67_HANDLER_SECURITY_SOURCE --dir signed/table
+          gh run download 43145296648 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_KM41_SECONDARY_GATED_AND_RESET_HANDLERS --dir signed/code
+          find signed -type f -printf '%p %s\n'
+          test -s "$(find signed/table -type f -name KM41_ALL_67_HANDLER_SECURITY_SURFACE.tsv -print -quit)"
+          test -s "$(find signed/code -type f -name HONOR70_KM41_EXTRA_STATE_HANDLERS.txt -print -quit)"
+      - name: Check original secure boot-state and protected writes without modifying phone
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_km41_set_boot_state_runtime_vs_persistent.py
+          python3 tools/audit_km41_set_boot_state_runtime_vs_persistent.py \
+            --inventory "$(find signed/table -type f -name KM41_ALL_67_HANDLER_SECURITY_SURFACE.tsv -print -quit)" \
+            --handlers "$(find signed/code -type f -name HONOR70_KM41_EXTRA_STATE_HANDLERS.txt -print -quit)" \
+            --out report/KEYMASTER_0x208_RUNTIME_VS_0x203_PERSISTENT.json
+          python3 -m json.tool report/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_KM41_BOOT_STATE_0x208_VS_PERSISTENT_0x203
+          path: report/*.json
+          retention-days: 14
