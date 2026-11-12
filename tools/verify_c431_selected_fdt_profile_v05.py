@@ -61,6 +61,23 @@ def verify(old,new,observed,source):
         overlay.get("sha256")!=o.get("sha256") or
         overlay.get("model")!=[o.get("model")]):
         raise ValueError("Boot-reported DTBO #18 mismatch")
+    if (overlay.get("qcom_board_id_decimal")!=8790 or
+        overlay.get("qcom_board_id_hex")!="0x2256" or
+        o.get("qcom_board_id_decimal")!=8790 or
+        o.get("qcom_board_id_hex")!="0x2256" or
+        boot.get("ro.board.boardid")!="8790"):
+        raise ValueError("Independent QCOM board-id #18 mismatch")
+    if (overlay.get("hardware_version")!=boot.get("ro.board.hardware_version") or
+        o.get("hardware_version")!=boot.get("ro.board.hardware_version") or
+        overlay.get("board_name")!=o.get("board_name")):
+        raise ValueError("Independent reported board hardware variant mismatch")
+    if (other.get("qcom_board_id_decimal")!=8780 or
+        other.get("qcom_board_id_hex")!="0x224c" or
+        o.get("alternative_index_25_board_id_decimal")!=8780):
+        raise ValueError("Alternative DTBO #25 board-id not distinguished")
+    if selection.get("board_id_matches_dtbo_18") is not True or (
+        selection.get("board_id_mismatches_dtbo_25") is not True):
+        raise ValueError("Phone board-ID corroboration not retained")
     if other.get("sha256")==EXPECTED_OVERLAY:
         raise ValueError("Alternative FNE-NX9 #25 surprisingly identical")
     if (other.get("index")!=25 or
@@ -83,6 +100,10 @@ def verify(old,new,observed,source):
         "matching_overlay_sha256":o["sha256"],
         "alternative_same_model_index":25,
         "board_hardware_version":selection["reported_hardware_version"],
+        "phone_boardid_decimal":8790,
+        "matching_overlay_boardid_hex":"0x2256",
+        "same_model_alternative_boardid_hex":"0x224c",
+        "same_model_alternative_boardid_decimal":8780,
         "genuinely_selected_merged_fdt_attested":False,
         "live_partition_byte_identity_attested":False,
         "kernel_phys_load_confirmed":False,
