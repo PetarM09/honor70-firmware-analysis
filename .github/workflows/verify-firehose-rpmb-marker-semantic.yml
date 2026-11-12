@@ -33,10 +33,11 @@ jobs:
           from pathlib import Path
           s=Path('input/HONOR70_FIREHOSE_SECUREBOOT_PEEK_POKE_RPMB.txt').read_text(errors='replace')
           print('SOURCE_GHIDRA_SHA256',hashlib.sha256(s.encode()).hexdigest())
-          targets=('1482bc30','14825db0','1481fccc')
-          for a in targets:
+          import re
+          owners=re.findall(r'(?m)^===== MARKER_OWNER ([0-9a-f]+) ',s)
+          if len(owners)<3:raise RuntimeError('Less than three original decompiled security marker owners')
+          for a in owners:
               start=s.find('===== MARKER_OWNER '+a)
-              if start<0:raise RuntimeError('Missing original Ghidra owner '+a)
               end=s.find('===== MARKER_OWNER ',start+20)
               chunk=s[start:end if end>=0 else None]
               Path('output/'+a+'.txt').write_text(chunk)
