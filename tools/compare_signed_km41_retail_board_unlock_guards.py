@@ -43,6 +43,7 @@ def normalize(s):
     s=re.sub(r"\bFUN_[0-9a-fA-F]{8}\b","FUN_SYMBOL",s)
     s=re.sub(r"\bDAT_[0-9a-fA-F]{8}\b","DATA_SYMBOL",s)
     s=re.sub(r"\bLAB_[0-9a-fA-F]{8}\b","LABEL",s)
+    s=re.sub(r"\bcode_r0x[0-9a-fA-F]+\b","LABEL",s)
     s=re.sub(r"\b0x([0-9a-fA-F]{6,})\b",
         lambda m:"ABS_ADDR" if int(m.group(1),16)<0xF0000000 else m.group(0),s)
     s=re.sub(r"\s+"," ",s).strip()
