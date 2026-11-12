@@ -34,7 +34,29 @@ The **[v0.3 build succeeded in GitHub Actions run 43294501535](https://github.co
 - The bundled profile SHA-256: `0dd061b002413b4547733e433e080e523044ac349465e8758f3b6dfc65ac9979`.
 - Actions artifact: `HONOR70_C431_PROFILE_PREFLIGHT_V03_ANDROID_APK` (includes APK and audit files). Debug-signed with an ephemeral Actions certificate.
 
-The first experimental test is **not yet executed on the owner's device**; the completed CI tests verify APK construction and consistency, not live C431 matching.
+## Live handset test: **PASSED** (owner photo received 2026-11-12)
+
+The owner installed and ran the **actual FNE PI Gate v0.3** APK on the HONOR 70 and submitted a **photograph of the application report**. The following values were legible on the photographed screen. The screenshot is recorded by transcription rather than adding the personal photo to this public repository.
+
+| App field | Direct owner-photo observation |
+|---|---|
+| Profile | `honor70-fne-nx9-c431-8.0.0.290-5.4.295-ga2d8945339ca` |
+| Version | `0.1.0` |
+| Model | `FNE-NX9` (expected `FNE-NX9`) **OK** |
+| Device | `HNFNE` (expected `HNFNE`) **OK** |
+| Kernel | `5.4.295-qgki-ga2d8945339ca` (exact expected value) **OK** |
+| Android SDK | `34` (expected `34`) **OK** |
+| Firmware build (runtime) | `8.0.0.290C431E4R3P1` |
+| Profile region label | `C431`, explicitly marked **not independently attested** |
+| Kernel Image SHA | Taken from offline reference; **not checked against running kernel** |
+| Unresolved `kernel_phys_load` | `null` |
+| Outcome | **`PROFILE_MODEL_KERNEL_ANDROID_MATCH`** |
+
+The visible `C431` suffix in runtime build metadata additionally **corroborates the intended regional firmware family**, but it does not independently establish the signed boot image bytes or the actual kernel physical load.
+
+**Evidence update:** exact **model/device/kernel release/SDK profile identity and bundled JSON parsing have now passed on the owner's real Android phone.** There is no need to repeat this preflight. The older `APP_PI_FUTEX_OK` and invalid PI-requeue `EINVAL` tests also already passed independently.
+
+**What did NOT happen:** no live CVE-2026-43499 rollback was triggered, no dangling waiter or user-controlled stack memory was observed, no elevated UID/capabilities or kernel memory access was obtained, and the bootloader was not unlocked. This is a successful **identity-level** gate only.
 
 ## How to test on the actual phone, without changing it
 
