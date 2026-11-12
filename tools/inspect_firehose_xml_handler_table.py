@@ -59,10 +59,29 @@ def main():
   sha_handler=0x14825120 if a.loader=="ddr" else 0x14825114
   sha_ptrs=[x for x in code if int(x["raw_qword"],16)==sha_handler]
   if not sha_ptrs:raise RuntimeError("Known original getsha256digest XML callback absent from table")
+  expected_commands=[
+    "program","read","nop","patch","configure","setbootablestoragedrive",
+    "erase","power","firmwarewrite","getstorageinfo","benchmark",
+    "emmc","ufs","fixgpt","getsha256digest"]
+  by_position={int(item["table_vaddr"],16):item for item in rows}
+  ordered=[]
+  for index,name in enumerate(expected_commands):
+    row=0x148A2968+index*16
+    tag=by_position.get(row)
+    handler=by_position.get(row+8)
+    if tag is None or tag["ascii"]!=name:
+      raise RuntimeError("Original signed Firehose command name mismatch "+name)
+    if handler is None or handler["target_type"]!="exec":
+      raise RuntimeError("Original signed Firehose callback pointer mismatch "+name)
+    ordered.append({"name":name,"name_entry":hex(row),
+                    "handler_entry":hex(row+8),"handler_addr":handler["raw_qword"]})
+  if any(x["name"] in ("peek","poke") for x in ordered):
+    raise RuntimeError("Unexpected memory command entry")
   result={
     "loader":a.loader,"sha256":digest,
     "table_range":[hex(START),hex(STOP)],
     "known_getsha256digest_handler":hex(sha_handler),
+    "proven_xml_command_table_entries":ordered,
     "known_handler_references":sha_ptrs,
     "table_pointing_to_executable_code":code,
     "table_pointing_to_ascii_cstrings":strings,
@@ -78,6 +97,7 @@ def main():
   a.out.write_text(json.dumps(result,indent=2)+"\n")
   print("SIGNED_XML_CALLBACK_TABLE_SHA",a.loader,digest)
   print("SHA256_HANDLER_PTR",json.dumps(sha_ptrs))
+  print("VERIFIED_COMMAND_REGISTRY",json.dumps(ordered))
   print("REFERENCED_COMMAND_TEXTS",json.dumps(strings[:130]))
   print("REGISTERED_FUNCTION_POINTERS",json.dumps(code[:160]))
 if __name__=="__main__":main()
