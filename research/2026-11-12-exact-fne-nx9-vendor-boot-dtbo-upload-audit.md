@@ -88,3 +88,37 @@ adb shell getprop | grep -Ei 'board|hwrev|hwid|hardware|dtbo|dtb|sku|revision|pr
 ```
 
 If present, hardware/bootloader properties may help identify the overlay family; even a `ro.boot.dtbo_idx` value, when available, needs comparison against the image's actual table and selection rules. A result is **not** proof of runtime physical load or kernel credentials. Redact serial numbers or other personal identifiers before sharing raw property output. No device operation was performed in committing this observation.
+
+## Owner's live boot-selection properties — DTB #13 + DTBO #18 (2026-11-12)
+
+The owner supplied non-root `adb shell getprop` results after the original `/proc/device-tree` reads failed with `Permission denied`. These *bootloader-supplied Android property strings* are direct on-device observations:
+
+```text
+ro.boot.dtb_idx=13
+ro.boot.dtbo_idx=18
+ro.board.boardid=8790
+ro.board.hardware_version=HN2FNEM03_VA
+ro.board.platform=lahaina
+ro.boot.product.hardware.sku=FNE-N29
+ro.boot.product.vendor.sku=yupik
+ro.product.hardwareversion=HN2FNEM02
+```
+
+Using the unchanged user-uploaded image files, the selected indices were rechecked **directly against the original FDT bytes and SHA-256**, not merely a prose label:
+
+| Bootloader property | Entry in uploaded image | Exact FDT SHA-256 | Model |
+|---|---|---|---|
+| `ro.boot.dtb_idx=13` | `vendor_boot_a.img` base DTB index **13** | `bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9` | `Qualcomm Technologies, Inc. Yupik SoC` — `qcom,yupik` |
+| `ro.boot.dtbo_idx=18` | `dtbo_a.img` overlay index **18** | `c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc` | `Honor Technologies, Inc. FNE-NX9-781-208` |
+
+**Stronger independent selector proof:** the selected DTBO #18 root `qcom,board-id` has first 32-bit big-endian cell **`0x2256` = decimal `8790`**, *exactly matching the phone's `ro.board.boardid`*. The same overlay's `hardware_version` property is **`HN2FNEM03_VA`**, also matching the reported value, and its board-name field is `FNE_NX9_LV_VA_SCP`.
+
+An **alternative** overlay at index **25** also has the model label `FNE-NX9-781-208`, but it is a distinct FDT (SHA-256 `9945c3106547e82fb18cb91c9d09c2cbcee9a7ace7445cc0209aabb3beeb33a4`) and its first `qcom,board-id` cell is **`0x224c` = decimal `8780`**, which **does not match** the phone. Its board-name is `FNE_NX9_LV_VA`. Thus both the index and the independent board-id select **entry #18, not #25**.
+
+The two reported hardware strings `HN2FNEM03_VA` and `HN2FNEM02` are distinct system properties and may describe different aspects of the hardware or product build; this observation alone does not imply corruption or force them to be equal.
+
+### Scope boundary
+
+The chosen indices match the file order of **the images the user uploaded**, and the SHA-256 checks validate each extracted FDT within those uploaded files. Without comparing those image bytes against the actual on-device partitions, we **cannot formally attest that the selected live merged Device Tree is byte-identical**. The blocked `/proc/device-tree` reads also mean that the live memory `reg` was not obtained. The Qualcomm yupik base DTB's static `/memory/reg` placeholder remains `0x0/0x0`. No physical kernel load, KASLR, use-after-free or root primitive is established.
+
+[**C431 profile v0.5**](../profiles/fne-nx9-c431-8.0.0.290.profile-v0.5.json) stores the live bootloader indices, selected uploaded FDT SHA hashes, board-ID and hardware revision without changing any of the ten still-unresolved exploit/runtime fields. The [live boot property evidence](../profiles/evidence/fne-nx9-c431-phone-boot-dtb13-dtbo18-2026-11-12.json) and [SHA-pinned selected FDT manifest](../profiles/evidence/fne-nx9-c431-uploaded-fdt-index-selected-sha-manifest-2026-11-12.json) are permanently versioned for further read-only work. [GitHub Actions C431 v0.5 validation](../../actions/workflows/verify-c431-profile-v05-selected-fdt.yml) rejects wrong indices, board-ID, source hashes and accidental root/UAF claims.
