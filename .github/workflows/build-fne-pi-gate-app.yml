@@ -33,7 +33,7 @@ jobs:
             'platforms;android-35' \
             'build-tools;35.0.0' \
             'ndk;26.3.11579264'
-      - name: Build tiny ARM64 JNI library for uncontended PI-futex only
+      - name: Build ARM64 JNI with uncontended PI test and invalid-address early-rejection probe
         run: |
           set -euo pipefail
           mkdir -p android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a report
@@ -48,6 +48,8 @@ jobs:
             android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
             | tee report/JNI_ELF_HEADER.txt
           grep -q 'Machine:.*AArch64' report/JNI_ELF_HEADER.txt
+          grep -Fq 'long rc = syscall(SYS_futex, &word, FUTEX_CMP_REQUEUE_PI | FUTEX_PRIVATE_FLAG,' android/fne-pi-gate/app/src/main/c/fne_pi_gate.c
+          grep -Fq '1, (void *)0, &word, 0);' android/fne-pi-gate/app/src/main/c/fne_pi_gate.c
       - name: Build debug APK - no app permissions
         working-directory: android/fne-pi-gate
         run: |
@@ -71,7 +73,7 @@ jobs:
           sha256sum android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
             | tee report/JNI_SHA256.txt
           cp "$APK" report/HONOR70_FNE_PI_GATE_SAFE_APP_DEBUG.apk
-          printf 'Contains only native FUTEX_LOCK_PI and FUTEX_UNLOCK_PI on private uncontended futex.\nNo exploit/requeue/root/unlock operations.\nSigned with ephemeral CI debug key.\n' > report/SCOPE.txt
+          printf 'Contains uncontended native FUTEX_LOCK_PI/UNLOCK_PI plus ONE intentionally invalid FUTEX_CMP_REQUEUE_PI with SAME source/destination address (must be rejected before queues).\nNo waiters, active requeue, GhostLock UAF, root or unlock operations.\nSigned with ephemeral CI debug key.\n' > report/SCOPE.txt
       - uses: actions/upload-artifact@v4
         with:
           name: HONOR70_FNE_PI_GATE_SAFE_ANDROID_APK
