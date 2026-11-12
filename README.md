@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [Three parallel signed-firmware workers: ABL, XBL, KM41 (new)](research/2026-11-12-parallel-three-lanes-abl-xbl-km-unlock-triage.md) | **Three GitHub Actions matrix jobs completed successfully**. Original ABL Fastboot handler checks logical state for equality **before** UI/secure write and exits early with `Device already`; separate XBL read-before-write/SCM and KM41 fuse gates reconfirmed. No live unlock method or device-state data established. |
 | [ABL OEMINFO RDMode-v1 → local +0x104 → unlock gate (new)](research/2026-11-12-abl-oeminfo-rdmode-v1-localstate-unlock-shortcut.md) | Original ABL reads OEMINFO record **0x82** and checks RD-mode-v1 identifiers (`0XEED6030008`, `fastboot flash:rdmodev1`) via a SHA256/RSA-PSS-related helper; initialization writes the resulting logical value to `+0x104`. UI unlock requests **1**. In unchanged limited Fastboot mode, the equal-state shortcut cannot skip a new unlock WRITE. The field is **not a direct RPMB Keymaster read**. |
 | [VerifiedBoot reset slot is Keymaster DELETE_ALL_KEYS 0x10E (verified)](research/2026-11-12-xbl-reset-slot-0x10e-is-delete-all-keys-not-unlock.md) | Original GUID+vtable registration links ABL `+0x30` to XBL `0x1C84`; the XBL sends Keymaster `0x10E` with its **own registered handler `0x107C48`**. An enabled branch requests zeroing of **12 KiB of protected key storage** and clears 16 in-memory cache entries. This is **not** bootloader state WRITE `0x203`; wipe never proves unlock. |
 | [ABL local-state equality shortcut, keys reset and wipe](research/2026-11-12-abl-local-state-equality-can-skip-write-before-wipe.md) | The setter may skip a secure-state WRITE when its context `+0x104` state getter matches the request. Both this shortcut and a successful WRITE converge before the separate Keymaster key-deletion command and conditional recovery wipe. |
@@ -29,6 +30,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Three concurrent ABL/XBL/KM41 source-asserted research jobs](../../actions/runs/43126930044)
 - [Independent original signed ABL RDMode-v1 and UI unlock state truth-table check](../../actions/runs/43125419237)
 - [Exact OEMINFO 0x82 and Fastboot local state ARM64/UI table](../../actions/runs/43124622604)
 - [Expanded ABL Ghidra RD-mode-v1 verifier function](../../actions/runs/43124806546)
@@ -54,5 +56,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 - All future experiments should separate **observed on-device behavior** from **static firmware hypothesis**.
 
 ## Outstanding question
+
+**2026-11-12 correction:** the normal Fastboot handler itself already exits at `0x27898` for equal local state; consequently its later setter equal-state shortcut is not the default explanation for old wipe+LOCKED. See [parallel result](research/2026-11-12-parallel-three-lanes-abl-xbl-km-unlock-triage.md).
 
 During the prior physical UI confirmation that still left the bootloader **LOCKED**, did the ABL-local equality check skip a new secure write, or did the device reach the protected pre-write READ `0x202` and WRITE `0x203`? The ABL may stage recovery wipe after a separate reset even without a new WRITE. The existing Fastboot-only log does not answer the live-path question. **The +0x30 function-pointer ambiguity is resolved:** it sends `DELETE_ALL_KEYS (0x10E)`, independently of the `0x202/0x203` device-state pair. The unresolved question is which **live** local-state comparison, SCM backend and protected-write gate were taken on the owner's handset; existing offline images alone cannot establish them. **The ABL `0x12CF8` → RD-mode-v1 → `+0x104` route and UI request byte are now statically resolved.** Future work must distinguish the handset's actual ABL context during the original attempt, XBL SCM backend selection, and protected Keymaster `0x202`/`0x203` results. No offline signed firmware alone can supply those live values; do not infer that altering OEMINFO #130 would unlock the device.
