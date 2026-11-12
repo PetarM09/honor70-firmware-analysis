@@ -17,6 +17,8 @@ FUNCS={
  'rt_mutex_start_proxy_lock':0x180,
  'rt_mutex_cleanup_proxy_lock':0x200,
  'rt_mutex_init_waiter':0x100,
+ 'task_blocks_on_rt_mutex':0x380,
+ '__rt_mutex_start_proxy_lock':0x380,
  'rt_mutex_adjust_prio_chain':0x700,
  'rt_mutex_enqueue':0x200,
  'rt_mutex_dequeue':0x200,
