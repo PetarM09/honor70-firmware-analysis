@@ -49,7 +49,7 @@ def main():
  pages={v & ~0xfff for v in addr_targets}
  print("DEBUG_ELF_SEGMENTS",json.dumps(segments))
  print("DEBUG_TARGETS",json.dumps({hex(k):v for k,v in addr_targets.items()}))
- md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
+ md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True;md.skipdata=True
  crossrefs={term:[] for term in TARGETS}
  for seg in segments:
   if not seg["flags"]&1:continue
