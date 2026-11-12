@@ -1,0 +1,38 @@
+name: HONOR70 Review SLock-v1 and RDMode-v1 Signed Handler Internals
+on:
+  push:
+    paths:
+      - 'tools/review_slock_rdmode_firmware_handlers.py'
+      - '.github/workflows/review-slock-rdmode-original-abl.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact original ABL Ghidra decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence report
+          gh run download 43128395793 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_SLOCK_RDMODE_OEM_FASTBOOT_GHIDRA --dir evidence
+          test -s evidence/HONOR70_SIGNED_SERVICE_FASTBOOT_ENTRYPOINTS.txt
+      - name: Evaluate original signed service-token and branch guards
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/review_slock_rdmode_firmware_handlers.py
+          python3 tools/review_slock_rdmode_firmware_handlers.py \
+            --ghidra evidence/HONOR70_SIGNED_SERVICE_FASTBOOT_ENTRYPOINTS.txt \
+            --output report/ABL_SLOCK_RDMODE_SIGNED_HANDLER_GUARDS.json
+          python3 -m json.tool report/ABL_SLOCK_RDMODE_SIGNED_HANDLER_GUARDS.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_SLOCK_RDMODE_SIGNED_HANDLER_GUARDS
+          path: report/*.json
+          retention-days: 14
