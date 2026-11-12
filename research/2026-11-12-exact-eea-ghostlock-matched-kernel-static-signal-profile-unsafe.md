@@ -25,6 +25,22 @@ warning: rt_mutex_waiter task/lock offsets are missing from BTF; the multicast g
 
 **Interpretation:** an *offline static signal* of code associated with the GhostLock primitive has been found in the **correct EEA kernel**. This does not establish triggerability, the availability of controlled writes, or reproducible privilege escalation. The original upstream executable itself rejects missing geometry.
 
+## New separate check: original machine instructions corroborate the `remove_waiter` observation
+
+A new independent [signed EEA kernel ARM64 analysis](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43143437566) reconstructed symbols from the **original matched 8.0.0.290 kernel**, checked the exact `boot.img` and `Image` SHA256 digests, and found `remove_waiter` at virtual address `0xffffffc01037e350` (relative to typical `_text` base `0xffffffc010080000`, offset **`0x2fe350`**, agreeing with the previously independent extractor). Unlike untrusted diagnostic text, the source contains actual ARM64 instructions:
+
+```asm
+0xffffffc01037e380  ldr x24, [x19, #0x18]
+0xffffffc01037e384  mrs x20, sp_el0
+0xffffffc01037e388  add x21, x20, #0x96c
+0xffffffc01037e38c  mov x0, x21
+0xffffffc01037e390  bl  0xffffffc01192c084
+```
+
+In the ARM64 Linux kernel, **`mrs x20, sp_el0`** reads the thread's current task pointer in this context, consistent with the earlier GhostLock profile tool's assessment that `remove_waiter` still uses `current`. This is a **new, byte-backed source observation on the correct European build**, rather than an inference from the Chinese kernel's known offsets.
+
+The disassembly does **not** by itself prove the CVE's use-after-free can be triggered, that the many required C data-structure offsets are known, or that root can be achieved. It certainly does **not** bypass verified boot or the separate Keymaster fuse gate. Do not run precompiled FNE-AN00 exploit binaries against this unverified profile.
+
 ## Important verified safety problems
 
 The independent audit of the extractor's `HONOR70_CANDIDATE.conf` found:
