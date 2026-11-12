@@ -1,0 +1,42 @@
+name: HONOR70 EDL Firehose Signed Programmer Capability Gate 20261112
+on:
+  push:
+    paths:
+      - 'tools/audit_signed_firehose_edl_capabilities_20261112.py'
+      - '.github/workflows/verify-firehose-edl-unlock-options-20261112.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore original SHA-verified Board signed Firehose executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input raw report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir input
+          unzip -p input/selected_bootchain.zip bootloaderimage/prog_firehose_ddr.elf > raw/ddr.elf
+          unzip -p input/selected_bootchain.zip bootloaderimage/prog_firehose_lite.elf > raw/lite.elf
+          echo '9c892e716320764c20055d8374bf8eca7418b3ff2177f81794e18d3656fc55a8  raw/ddr.elf' | sha256sum -c
+          echo 'e029df6e2d532de87c2279e960472ec0e4799aca53bc27ed4fa3e4027b05d101  raw/lite.elf' | sha256sum -c
+      - name: Audit UFS/RPMB and possible memory/peek/poke command markers
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'pyelftools>=0.31,<0.34'
+          python3 -m py_compile tools/audit_signed_firehose_edl_capabilities_20261112.py
+          python3 tools/audit_signed_firehose_edl_capabilities_20261112.py \
+            --ddr raw/ddr.elf --lite raw/lite.elf \
+            --out report/HONOR70_SIGNED_FIREHOSE_EDL_UNLOCK_CAPABILITY.json
+          python3 -m json.tool report/HONOR70_SIGNED_FIREHOSE_EDL_UNLOCK_CAPABILITY.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EDL_SIGNED_FIREHOSE_UNLOCK_CAPABILITY
+          path: report/*.json
+          retention-days: 14
