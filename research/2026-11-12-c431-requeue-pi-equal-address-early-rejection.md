@@ -57,6 +57,28 @@ App is a GitHub Actions **debug** APK signed with a per-run ephemeral debug cert
 
 The final APK is verified by the latest [CI build](../../.github/workflows/build-fne-pi-gate-app.yml): AArch64 native JNI, zero Android permissions, package `org.openhonor.fnepigate`, launcher title `FNE PI Gate`.
 
+## Verified v0.2 APK available
+
+- **[Successful v0.2 build, GitHub Actions 43268029573](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43268029573)**.
+- Artifact ID: `13966123983`, name `HONOR70_FNE_PI_GATE_SAFE_ANDROID_APK`.
+- App version code `2`, version name `0.2-invalid-requeue-guard`.
+- Verified APK SHA256: **`b8e919e38deec221cac0734ad232b6b0b9fc204f3eadcb8fcab5a37c88980f87`**.
+- JNI arm64-v8a SHA256: `d809e601264d095439b844ea6c665a60833ecfeae503ac7538b0e69e0e3fd8f2`.
+- Package `org.openhonor.fnepigate`, label `FNE PI Gate`, permission audit: zero requested Android permissions.
+- Source CI also asserts the native code has `&word` as both source and destination futex addresses.
+- v0.2 builds on v0.1 and retains the original verified LOCK_PI/UNLOCK_PI button. **Use only the new second button** to answer the current, previously unmeasured question.
+
+If the earlier v0.1 app is present, the new GitHub-run debug signing certificate may differ. Remove the earlier installation first and then install v0.2:
+
+```bash
+adb uninstall org.openhonor.fnepigate
+adb install -r "$HOME/Downloads/HONOR70_FNE_PI_GATE_V02.apk"
+```
+
+Open the app and tap **`Proveri CMP_REQUEUE_PI rano odbijanje`**. Copy the report with **`Kopiraj rezultat`**. Expected: `rc=-1 errno=22` and `REQUEUE_PI_EARLY_GUARD_OK`.
+
+**No on-device v0.2 test result has yet been reported.** Only static original-kernel guard validation and APK construction are proven so far.
+
 ## Research conclusion
 
 A normal Android app was already demonstrated capable of private PI futex lock/unlock. This new invalid early-rejection check tests **distinct dispatch availability** without entering the vulnerable requeue operation. Passing it still leaves GhostLock's lifetime trigger, memory geometry, controlled primitives, temporary root and authenticated bootloader state **unproven**.
