@@ -36,7 +36,11 @@
         "qcom,qrd"
       ],
       "size": 318053,
-      "absolute_offset_hex": "0x5726f6"
+      "absolute_offset_hex": "0x5726f6",
+      "qcom_board_id_hex": "0x2256",
+      "qcom_board_id_decimal": 8790,
+      "hardware_version": "HN2FNEM03_VA",
+      "board_name": "FNE_NX9_LV_VA_SCP"
     },
     "overlay_dtbo_25": {
       "index": 25,
@@ -44,13 +48,18 @@
       "model": [
         "Honor Technologies, Inc. FNE-NX9-781-208"
       ],
-      "size": 317925
+      "size": 317925,
+      "qcom_board_id_hex": "0x224c",
+      "qcom_board_id_decimal": 8780,
+      "hardware_version": "HN2FNEM03_VA",
+      "board_name": "FNE_NX9_LV_VA"
     }
   },
   "confidence": {
     "uploaded_bytes_and_selected_FDT_digest_checked_locally": true,
     "uploaded_file_active_on_device_byte_match": false,
     "DTBO_selection_reported_by_Android_getprop": true,
-    "actual_live_merged_FDT_read": false
+    "actual_live_merged_FDT_read": false,
+    "board_id_and_hardware_version_independently_match_selected_overlay_18": true
   }
 }
