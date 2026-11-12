@@ -72,10 +72,11 @@ def main():
      resolved=page+o[2].imm
     if nxt.mnemonic.startswith("ldr") and len(o)>1 and o[1].type==ARM64_OP_MEM and o[1].mem.base==register:
      resolved=page+o[1].mem.disp
-    if resolved in addr_targets:
-     term,offset=addr_targets[resolved]
+    for target,(term,offset) in addr_targets.items():
+     if resolved is None or abs(resolved-target)>96:continue
      x={"adrp_addr":hex(cur.address),"resolution_addr":hex(nxt.address),
         "reference_literal_vaddr":hex(resolved),
+        "target_literal_vaddr":hex(target),"reference_delta":resolved-target,
         "instruction":nxt.mnemonic+" "+nxt.op_str,
         "context":[f"{x.address:#x}: {x.mnemonic} {x.op_str}"
                    for x in ins[max(0,i-4):min(len(ins),i+10)]]}
