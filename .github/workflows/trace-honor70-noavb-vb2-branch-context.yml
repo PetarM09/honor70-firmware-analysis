@@ -1,0 +1,50 @@
+name: HONOR70 Trace Actual NOAVB vs AVB2 Function Branches
+on:
+  push:
+    paths:
+      - '.github/workflows/trace-honor70-noavb-vb2-branch-context.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch original verified signed EEA ABL Ghidra artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source report
+          gh run download 43132274937 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_AVB2_NOAVB_GPT_SELECTOR_ORIGINAL_EEA_ABL --dir source
+          test -s source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt
+      - name: Show both branches and their actual condition
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          s=Path('source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt').read_text(errors='replace')
+          print('SOURCE_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          a=s.find('===== AVB_FUNCTION 00003144 ')
+          b=s.find('===== AVB_FUNCTION ',a+12)
+          code=s[a:b if b>=0 else None]
+          Path('report/ABL_0x3144_AVB2_NOAVB_FULL_DECOMP.txt').write_text(code)
+          print('ABL_0x3144_DECOMP_BYTES',len(code))
+          for term in ('NoAVBLoad_fw_ufsdev','LoadImageAndAuthVB2','Sending Milestone',
+                       'FUN_00003134','FUN_0003e268','FUN_000433a8','VB2',
+                       'avb_slot_verify','vbmeta','0x10000','FUN_0003bf90'):
+            occurrences=[m.start() for m in re.finditer(re.escape(term),code,re.I)]
+            print('===== TOKEN',repr(term),'MATCH_COUNT',len(occurrences))
+            for i in occurrences[:7]:
+              print('--- INDEX',i,'---')
+              print(code[max(0,i-2500):min(len(code),i+2200)])
+          print('===== END')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_AVB_BRANCH_FULL_SOURCE
+          path: report/ABL_0x3144_AVB2_NOAVB_FULL_DECOMP.txt
+          retention-days: 14
