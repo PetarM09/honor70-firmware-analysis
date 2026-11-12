@@ -8,6 +8,8 @@ on:
       - 'tools/test_check_ghostlock_evidence.py'
       - 'tools/audit_fne_embedded_ikconfig.py'
       - 'tools/test_audit_fne_embedded_ikconfig.py'
+      - 'tools/trace_fne_c431_ghostlock_symbols.py'
+      - 'tools/test_trace_fne_c431_ghostlock_symbols.py'
       - '.github/workflows/audit-fne-exact-proxy-rollback-instructions.yml'
   workflow_dispatch:
 
@@ -50,6 +52,12 @@ jobs:
             tail -50 report/VMLINUX_RECOVERY.txt
             exit 1
           }
+          python3 -m unittest discover -s tools -p 'test_trace_fne_c431_ghostlock_symbols.py' -v
+          python3 tools/trace_fne_c431_ghostlock_symbols.py \
+            --boot src/boot.img \
+            --kernel data/kernel.Image \
+            --elf data/vmlinux.elf \
+            --out report/ORIGINAL_EEA_GHOSTLOCK_SYMBOL_INVENTORY.json
           python3 -m unittest discover -s tools -p 'test_audit_fne_embedded_ikconfig.py' -v
           python3 tools/audit_fne_embedded_ikconfig.py \
             --kernel data/kernel.Image \
