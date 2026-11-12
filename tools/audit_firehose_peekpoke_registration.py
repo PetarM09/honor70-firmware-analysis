@@ -67,6 +67,18 @@ def main():
         matched["strict_nul_delimited_literal_starts"]=[
             row["offset"] for row in matched["terminated_candidate_context"] if row["has_nul_boundary"]]
         xml[word]=matched
+    # The adjacent Firehose XML dispatcher string cluster contains actual
+    # NUL-delimited command tokens for common storage operations. Compare
+    # those with the apparent peek/poke mentions in diagnostic sentences.
+    for command in ("program","read","patch","erase","configure","getstorageinfo"):
+        if not xml[command]["strict_nul_delimited_literal_starts"]:
+            raise ValueError("Expected original Firehose XML command token missing: "+command)
+    for command in ("peek","poke"):
+        if xml[command]["strict_nul_delimited_literal_starts"]:
+            raise ValueError("Unexpected independent memory command string: "+command)
+    if not xml["poke"]["terminated_candidate_context"] or not all(
+        row["previous_byte"]=="0x2f" for row in xml["poke"]["terminated_candidate_context"]):
+        raise ValueError("Expected poke suffix only within 'peek/poke' diagnostic context")
     markers=[]
     for marker in DIAGNOSTICS:
         rows=[]
@@ -91,6 +103,7 @@ def main():
         "literal_not_always_executable_handler":True,
         "absence_of_direct_string_reference_not_proof_of_absent_code":True,
         "presence_of_rpmb_diagnostic_not_auth_rpmb_write":True,
+        "no_independent_nul_delimited_peek_or_poke_command_name_in_this_ELF":True,
         "phone_edl_loader_acceptance_not_tested":True
       }
     }
