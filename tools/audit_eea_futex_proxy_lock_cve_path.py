@@ -52,7 +52,7 @@ def main():
   elf=ELFFile(fd)
   segs=[{"v":int(s["p_vaddr"]),"size":int(s["p_filesz"]), "offset":int(s["p_offset"])}
      for s in elf.iter_segments() if s["p_type"]=="PT_LOAD" and int(s["p_flags"])&1]
-  def read_code(addr,maxbytes=2048):
+  def read_code(addr,maxbytes=12288):
    for seg in segs:
     if seg["v"]<=addr<seg["v"]+seg["size"]:
      allowed=min(maxbytes,seg["v"]+seg["size"]-addr)
@@ -64,7 +64,7 @@ def main():
    for row in syms[:8]:
     addr=row["address"]
     following=next((s["address"] for s in symbols if s["address"]>addr),addr+512)
-    size=min(2048,max(128,following-addr))
+    size=min(12288,max(128,following-addr))
     ins=list(md.disasm(read_code(addr,size),addr))
     entries=[]
     jumps=[]
@@ -81,14 +81,19 @@ def main():
      "estimated_code_bytes":size,
      "decoded_count":len(ins),
      "sp_el0_reads":[hex(x.address) for x in ins if x.mnemonic=="mrs" and "sp_el0" in x.op_str],
-     "bl_targets":entries[:120],
-     "branch_targets":jumps[:120],
+     "bl_targets":entries[:240],
+     "branch_targets":jumps[:240],
      "first_20":[f"{x.address:#x} {x.mnemonic} {x.op_str}" for x in ins[:20]]
     }
   remove_entries=[v for k,v in dis.items() if k=="remove_waiter"]
   if not remove_entries or not remove_entries[0]["sp_el0_reads"]:
    raise RuntimeError("Source identity check: expected current-pointer read not found")
   remove_addr=int(remove_entries[0]["entry"],16)
+  proxy=dis.get("rt_mutex_start_proxy_lock")
+  if proxy is None:raise RuntimeError("Missing source proxy lock function")
+  proxy_calls=[x for x in proxy["bl_targets"] if int(x["target"],16)==remove_addr]
+  if len(proxy_calls)!=1 or proxy_calls[0]["from"]!="0xffffffc01037e300":
+   raise RuntimeError("Original vulnerable proxy rollback call to remove_waiter not corroborated")
   caller_hits=[]
   for name,obj in dis.items():
    if name.startswith("remove_waiter"):continue
@@ -101,6 +106,7 @@ def main():
    "function_disassembly":dis,
    "direct_calls_to_remove_waiter_in_selected_functions":caller_hits,
    "observed_remove_waiter_reads_current_via_sp_el0":True,
+   "exact_proxy_lock_direct_call_to_vulnerable_remove_waiter":proxy_calls,
    "vulnerability_exploitable_proven":False,
    "successful_root_or_persistent_bootloader_unlock":False,
    "limitations":[
@@ -119,5 +125,6 @@ def main():
    print("SOURCE_CODE_ENTRY",name,entry["entry"],"CURRENT_MRS",entry["sp_el0_reads"],
          "CALLS",[(x["from"],x["target"]) for x in entry["bl_targets"][:25]],
          "BRANCHES",[(x["from"],x["target"]) for x in entry["branch_targets"][:40]])
+  print("EXACT_PROXY_TO_REMOVE_WAITER_DIRECT_BRANCH",json.dumps(proxy_calls))
   print("KNOWN_DIRECT_CALLS_TO_REMOVE_WAITER",json.dumps(caller_hits))
 if __name__=="__main__":main()
