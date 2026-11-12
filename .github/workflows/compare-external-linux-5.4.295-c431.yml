@@ -42,6 +42,9 @@ jobs:
             --dir inputs/fennie
           echo '71b9c7591dc611e6f92e742858bcc044cf01b605208058498e31d444b7704106  inputs/fennie/FENNIE/kernel_futex_c.txt' | sha256sum -c
           echo '70f96efb8e45b97b977957e3ecb93a4e63fcaf4e2b7d915d20316f3c4e6263b9  inputs/fennie/FENNIE/kernel_rtmutex_c.txt' | sha256sum -c
+          echo '9f93a2b3c26269a749db7ca74ac184812249be60280012cd3e7d43ac7bc3f024  inputs/fennie/FENNIE/include_sched_h.txt' | sha256sum -c
+          echo 'c79353d84625e4d352be7d96193cf162fba7857a85171540996f499679ea3d08  inputs/fennie/FENNIE/kernel_rtmutex_common_h.txt' | sha256sum -c
+          echo 'b86bd5e75fc256b870d9682d050dc877bbf438f52fe94e7348bdbbe6fa685308  inputs/fennie/FENNIE/source_root_makefile.txt' | sha256sum -c
       - name: Inspect upstream version, vendor modifications, function differences and struct declarations
         run: |
           set -euo pipefail
@@ -49,6 +52,9 @@ jobs:
             --archive inputs/external/linux-5.4.295.tar.xz \
             --fennie-futex inputs/fennie/FENNIE/kernel_futex_c.txt \
             --fennie-rtmutex inputs/fennie/FENNIE/kernel_rtmutex_c.txt \
+            --fennie-sched inputs/fennie/FENNIE/include_sched_h.txt \
+            --fennie-rtmutex-common inputs/fennie/FENNIE/kernel_rtmutex_common_h.txt \
+            --fennie-makefile inputs/fennie/FENNIE/source_root_makefile.txt \
             --selected-output-dir report/selected-source \
             --out report/LINUX_5_4_295_VS_HONOR_FNE_C431_SOURCE_COMPARISON.json \
             | tee report/SOURCE_COMPARISON_SUMMARY.txt
