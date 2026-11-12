@@ -1,0 +1,54 @@
+name: HONOR70 C431 Conditional Futex Select Stack Interval Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_c431_conditional_stack_geometry.py'
+      - 'tools/test_audit_c431_conditional_stack_geometry.py'
+      - '.github/workflows/audit-c431-conditional-stack-geometry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run eight synthetic no-device geometry tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/audit_c431_conditional_stack_geometry.py
+          python3 -m unittest discover -s tools \
+            -p 'test_audit_c431_conditional_stack_geometry.py' -v
+      - name: Retrieve original SHA-verified source-to-binary and syscall graph evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/waiter evidence/graph report
+          gh run download 43281477811 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_C431_FUTEX_WAITER_STACK_STATIC_EVIDENCE \
+            --dir evidence/waiter
+          gh run download 43278166210 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_C431_ORIGINAL_FUTEX_PSELECT_GRAPH \
+            --dir evidence/graph
+      - name: Model static frame intersection with assumptions explicitly unproven
+        run: |
+          set -euo pipefail
+          python3 tools/audit_c431_conditional_stack_geometry.py \
+            --waiter-report evidence/waiter/C431_FUTEX_WAITER_SOURCE_BINARY_STACK_EVIDENCE.json \
+            --callgraph evidence/graph/ORIGINAL_C431_FUTEX_PSELECT_CALLGRAPH.json \
+            --out report/ORIGINAL_C431_CONDITIONAL_STACK_FRAME_INTERSECTION.json \
+            | tee report/CONDITIONAL_FRAME_SUMMARY.txt
+          python3 -m json.tool report/ORIGINAL_C431_CONDITIONAL_STACK_FRAME_INTERSECTION.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HONOR70_C431_CONDITIONAL_STACK_INTERVALS
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
