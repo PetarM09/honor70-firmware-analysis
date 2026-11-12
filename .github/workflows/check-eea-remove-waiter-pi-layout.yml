@@ -1,0 +1,46 @@
+name: HONOR70 Crosscheck Exact EEA Task PI Lock Fields Without Exploit
+
+on:
+  push:
+    paths:
+      - 'tools/crosscheck_eea_remove_waiter_pi_layout.py'
+      - '.github/workflows/check-eea-remove-waiter-pi-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve signed source disassembly and pinned FNE common struct
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source upstream report
+          gh run download 43143437566 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_STOCK_EEA_REMOVE_WAITER_ARM64_EVIDENCE --dir source
+          test -s source/STOCK_EEA_REMOVE_WAITER_MACHINE_CODE.json
+          curl -fsSL --retry 3 \
+            -o upstream/offsets.h \
+            https://raw.githubusercontent.com/MSEDGE-CORE/GhostLock-HonorFne/1cdaebd47bf34fa29d95b0b9e929f360cfe8b8fb/root/exploit/src/devices/offsets.h
+          test -s upstream/offsets.h
+      - name: Prove two EEA kernel field offsets by source disassembly
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/crosscheck_eea_remove_waiter_pi_layout.py
+          python3 tools/crosscheck_eea_remove_waiter_pi_layout.py \
+            --machine-code source/STOCK_EEA_REMOVE_WAITER_MACHINE_CODE.json \
+            --upstream-structs upstream/offsets.h \
+            --out report/EXACT_EEA_REMOVE_WAITER_PI_FIELD_EVIDENCE.json
+          python3 -m json.tool report/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_EEA_ORIGINAL_TASK_PI_FIELDS_CODE_CHECK
+          path: report/*.json
+          retention-days: 14
