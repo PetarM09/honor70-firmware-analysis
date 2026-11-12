@@ -1,0 +1,53 @@
+name: HONOR70 Explain AVB2 vs NOAVB Selection Branch from Signed ABL
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-avb2-noavb-gpt-selection-branch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Download original signed Ghidra selection report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source evidence
+          gh run download 43132274937 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_AVB2_NOAVB_GPT_SELECTOR_ORIGINAL_EEA_ABL --dir source
+          test -s source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt
+      - name: Show conditional boot selector and GPT-related function bodies
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          s=Path('source/HONOR70_AVB2_NOAVB_GPT_SELECTION_GHIDRA.txt').read_text(errors='replace')
+          print('EXACT_GHIDRA_REPORT_SHA256',hashlib.sha256(s.encode()).hexdigest())
+          print('ALL_FUNCTION_HEADINGS')
+          for line in s.splitlines():
+            if line.startswith('===== AVB_FUNCTION '):print(line)
+          blocks=re.split(r'(?=^===== AVB_FUNCTION )',s,flags=re.M)
+          for addr in ['00003144','00005258','00007904','00006dd0','000061b8',
+                       '000014d0','00003134','0003e268','0003e7e8']:
+            t=next((b for b in blocks if b.startswith('===== AVB_FUNCTION '+addr)),None)
+            if t is None:
+              print('MISSING',addr);continue
+            Path('evidence/'+addr+'.txt').write_text(t)
+            print('========== ORIGINAL_FUNCTION',addr,'BYTES',len(t),'==========')
+            print(t[:34000] if addr in ('00003144','00005258','000014d0') else t[:17000])
+            if len(t)>34000:
+              keylines=[(i,line) for i,line in enumerate(t.splitlines())
+                if re.search(r'vbmeta|AVB2|NO_AVB|NoAVB|LoadImageAndAuth|Milestone|Is_VERIFIED|GetPartition|FindPartition|GPT|FUN_000|if\\s*\\(',line,re.I)]
+              print('FILTERED_MATCHES',len(keylines))
+              for i,line in keylines[:170]:print('L',i,line[:320])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_AVB2_NOAVB_CRITICAL_FUNCTION_SOURCE
+          path: evidence/*.txt
+          retention-days: 14
