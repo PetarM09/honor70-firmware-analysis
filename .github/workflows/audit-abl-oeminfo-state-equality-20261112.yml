@@ -37,7 +37,7 @@ jobs:
       - name: Verify original ARM64 instruction points and print linked decompilation
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6'
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6' 'pefile>=2024.8,<2027'
           python3 -m py_compile tools/audit_abl_oeminfo_local_state_to_unlock.py
           python3 tools/audit_abl_oeminfo_local_state_to_unlock.py \
             --abl src/verified/LinuxLoader.efi \
