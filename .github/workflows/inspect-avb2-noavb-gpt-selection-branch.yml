@@ -39,12 +39,12 @@ jobs:
               print('MISSING',addr);continue
             Path('evidence/'+addr+'.txt').write_text(t)
             print('========== ORIGINAL_FUNCTION',addr,'BYTES',len(t),'==========')
-            print(t[:34000] if addr in ('00003144','00005258','000014d0') else t[:17000])
+            print(t[:9000] if addr in ('00003144','00005258','000014d0') else t[:14000])
             if len(t)>34000:
-              keylines=[(i,line) for i,line in enumerate(t.splitlines())
-                if re.search(r'vbmeta|AVB2|NO_AVB|NoAVB|LoadImageAndAuth|Milestone|Is_VERIFIED|GetPartition|FindPartition|GPT|FUN_000|if\\s*\\(',line,re.I)]
+              tokens=('vbmeta','avb2','no_avb','noavb','loadimage','milestone','is_verified','getpartition','gpt','fun_000','if (')
+              keylines=[(k,line) for k,line in enumerate(t.splitlines()) if any(word in line.lower() for word in tokens)]
               print('FILTERED_MATCHES',len(keylines))
-              for i,line in keylines[:170]:print('L',i,line[:320])
+              for i,line in keylines[:190]:print('L',i,line[:320])
           PY
       - uses: actions/upload-artifact@v4
         with:
