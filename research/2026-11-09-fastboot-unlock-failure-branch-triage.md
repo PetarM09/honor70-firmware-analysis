@@ -115,6 +115,19 @@ Do not confuse context-relative `[x0,#0x104]` with absolute address `0x1b5104`: 
 
 **No device operation occurred:** both successful workflow runs operate only on the offline firmware.
 
+## 2026-11-12 correction: ABL +0x104 derives from OEMINFO RD-mode-v1 credential checks
+
+[New original-ABL ARM64/Ghidra crosscheck](2026-11-12-abl-oeminfo-rdmode-v1-localstate-unlock-shortcut.md) [successful test](https://github.com/PetarM09/honor70-firmware-analysis/actions/runs/43125419237):
+
+- The returning path from `FUN_0001BF74` is constant `2`, selecting `FUN_00015690` from the caller `0x12CF8`.
+- The selected `0x15690` routine checks two RD-mode-v1 identifiers (`0XEED6030008` and `fastboot flash:rdmodev1`) using `0x1BB68`, whose Ghidra body includes `data_set_sha256_rsa_check_pss` logging. This sources the local access field `+0x104` through a service-mode-related OEMINFO **record ID 0x82**, not a direct Keymaster/RPMB state read.
+- Normal and critical UI `unlock` both request the byte **1**, verified from the original signed PE data and UI selection instructions.
+- The Fastboot allowlist checks only when local context `+0x104 != 1`. If an unallowlisted command was blocked in the **same unchanged session**, an unlock request of 1 cannot take the local-state equality shortcut and would next attempt the VBRwDevice WRITE after its initial callback READ.
+- The past confirmation and wipe are older, non-concurrent observations: they do not prove the live state at the time, nor which secure WRITE stage ran. **Permanent unlock remains unconfirmed.**
+
+Do not equate a service RD-mode authorization bit with a persistent bootloader unlock bit, or write OEMINFO record 130 on this basis.
+
+
 
 ### Follow-up: exact source branch for +0x104 initialization
 
