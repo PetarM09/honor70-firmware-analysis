@@ -1,0 +1,43 @@
+name: HONOR70 Resolve Firehose Secure Boot Peek Poke ARM64 Code References
+on:
+  push:
+    paths:
+      - 'tools/trace_firehose_security_marker_xrefs.py'
+      - '.github/workflows/trace-firehose-peek-poke-secureboot-xrefs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original signed loader and validate SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p raw src report
+          gh run download 42553239190 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FNE_AN00_BOARD_SIGNED_BOOTCHAIN --dir src
+          unzip -p src/selected_bootchain.zip bootloaderimage/prog_firehose_${{ matrix.loader }}.elf > raw/Firehose.elf
+      - name: Disassemble only signed ARM64 code references to original security strings
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages 'capstone>=5,<6' 'pyelftools>=0.31,<0.34'
+          python3 tools/trace_firehose_security_marker_xrefs.py \
+            --loader "${{ matrix.loader }}" --input raw/Firehose.elf \
+            --out report/HONOR70_FIREHOSE_${{ matrix.loader }}_SECURITY_CODE_XREFS.json
+          python3 -m json.tool report/*.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_SECURITY_XREFS"
+          path: report/*.json
+          retention-days: 14
