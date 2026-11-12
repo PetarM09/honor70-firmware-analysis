@@ -1,0 +1,42 @@
+name: HONOR70 Verify USB RX Buffer Disproves 64-byte Fastboot OOB
+on:
+  push:
+    paths:
+      - 'tools/verify_abl_usb_rx_bounds_no_64byte_oob.py'
+      - '.github/workflows/verify-abl-fastboot-64byte-oob-rejected.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve independently signed ABL parse and USB init reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src/parser src/usb report
+          gh run download 43130106309 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_ABL_FASTBOOT_PREGATE_64BYTE_BUFFER_BOUNDS --dir src/parser
+          gh run download 43130869693 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_ORIGINAL_FASTBOOT_USB_RX_BUFFER_SIZE --dir src/usb
+          test -s src/parser/HONOR70_FASTBOOT_PREGATE_BUFFER_BOUNDS.txt
+          test -s src/usb/HONOR70_FASTBOOT_USB_RX_BUFFER_SETUP.txt
+      - name: Validate full normal USB RX allocation and parser terminator
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/verify_abl_usb_rx_bounds_no_64byte_oob.py
+          python3 tools/verify_abl_usb_rx_bounds_no_64byte_oob.py \
+            --parser-ghidra src/parser/HONOR70_FASTBOOT_PREGATE_BUFFER_BOUNDS.txt \
+            --rxinit-ghidra src/usb/HONOR70_FASTBOOT_USB_RX_BUFFER_SETUP.txt \
+            --out report/ORIGINAL_EEA_USB_FASTBOOT_NO_64BYTE_OOB.json
+          python3 -m json.tool report/ORIGINAL_EEA_USB_FASTBOOT_NO_64BYTE_OOB.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_VERIFIED_FASTBOOT_RX_ALLOCATION_BOUNDS
+          path: report/*.json
+          retention-days: 14
