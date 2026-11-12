@@ -1,0 +1,60 @@
+name: HONOR70 Exact Signed Proxy Rollback Conditional Branch Audit
+
+on:
+  push:
+    paths:
+      - 'tools/audit_exact_fne_rollback_instruction_condition.py'
+      - '.github/workflows/audit-fne-exact-proxy-rollback-instructions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve SHA-verified retail C431 8.0.0.290 boot image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src data report
+          gh run download 42530238358 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_STOCK_BOOT_FOR_GHOSTLOCK_PROFILE --dir src
+          echo '5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256  src/boot.img' | sha256sum -c
+          python3 - <<'PY'
+          import hashlib,struct
+          from pathlib import Path
+          b=Path('src/boot.img').read_bytes()
+          assert b[:8]==b'ANDROID!' and struct.unpack_from('<I',b,40)[0]==3
+          size=struct.unpack_from('<I',b,8)[0]
+          raw=b[4096:4096+size]
+          assert hashlib.sha256(raw).hexdigest()=='bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece'
+          Path('data/kernel.Image').write_bytes(raw)
+          print('SIGNED_EEA_KERNEL_SHA256',hashlib.sha256(raw).hexdigest())
+          PY
+      - name: Recover original signed kernel kallsyms and disassemble relevant functions
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages \
+            vmlinux-to-elf 'capstone>=5,<6' 'pyelftools>=0.31,<0.34'
+          vmlinux-to-elf data/kernel.Image data/vmlinux.elf > report/VMLINUX_RECOVERY.txt 2>&1 || {
+            tail -50 report/VMLINUX_RECOVERY.txt
+            exit 1
+          }
+          python3 -m py_compile tools/audit_exact_fne_rollback_instruction_condition.py
+          python3 tools/audit_exact_fne_rollback_instruction_condition.py \
+            --boot src/boot.img \
+            --kernel data/kernel.Image \
+            --elf data/vmlinux.elf \
+            --out report/ORIGINAL_EEA_PROXY_ROLLBACK_CONDITIONS.json
+          python3 -m json.tool report/ORIGINAL_EEA_PROXY_ROLLBACK_CONDITIONS.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HONOR70_STOCK_EEA_PROXY_LOCK_ROLLBACK_INSTRUCTIONS
+          path: report/
+          retention-days: 14
