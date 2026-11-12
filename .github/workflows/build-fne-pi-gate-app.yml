@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - 'android/fne-pi-gate/**'
+      - 'profiles/fne-nx9-c431-8.0.0.290.profile.json'
+      - 'tools/check_fne_c431_profile.py'
+      - 'tools/test_check_fne_c431_profile.py'
       - '.github/workflows/build-fne-pi-gate-app.yml'
   workflow_dispatch:
 
@@ -16,6 +19,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Verify evidence-only exact C431 profile and bundle into Android assets
+        run: |
+          set -euo pipefail
+          python3 tools/check_fne_c431_profile.py --out report/PROFILE_STATIC_PREFLIGHT.json
+          python3 -m unittest discover -s tools -p 'test_check_fne_c431_profile.py' -v
+          mkdir -p android/fne-pi-gate/app/src/main/assets
+          cp profiles/fne-nx9-c431-8.0.0.290.profile.json \
+            android/fne-pi-gate/app/src/main/assets/fne-c431-profile.json
+          sha256sum profiles/fne-nx9-c431-8.0.0.290.profile.json \
+            | tee report/PROFILE_SHA256.txt
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -62,6 +75,14 @@ jobs:
           test -s "$APK"
           unzip -l "$APK" | tee report/APK_MEMBERS.txt
           grep -q 'lib/arm64-v8a/libfnepi.so' report/APK_MEMBERS.txt
+          grep -q 'assets/fne-c431-profile.json' report/APK_MEMBERS.txt
+          unzip -p "$APK" assets/fne-c431-profile.json \
+            | sha256sum \
+            | cut -d' ' -f1 \
+            > report/APK_EMBEDDED_PROFILE_SHA256.txt
+          cmp report/APK_EMBEDDED_PROFILE_SHA256.txt \
+            <(cut -d' ' -f1 report/PROFILE_SHA256.txt)
+
           test "$(grep -c 'lib/.*libfnepi.so' report/APK_MEMBERS.txt)" = 1
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" \
             | tee report/APK_PERMISSIONS.txt
@@ -69,13 +90,14 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
             | tee report/APK_BADGING.txt
           grep -Fq "application: label='FNE PI Gate'" report/APK_BADGING.txt
+          grep -Fq "versionCode='3'" report/APK_BADGING.txt
           sha256sum "$APK" | tee report/APK_SHA256.txt
           sha256sum android/fne-pi-gate/app/src/main/jniLibs/arm64-v8a/libfnepi.so \
             | tee report/JNI_SHA256.txt
-          cp "$APK" report/HONOR70_FNE_PI_GATE_SAFE_APP_DEBUG.apk
-          printf 'Contains uncontended native FUTEX_LOCK_PI/UNLOCK_PI plus ONE intentionally invalid FUTEX_CMP_REQUEUE_PI with SAME source/destination address (must be rejected before queues).\nNo waiters, active requeue, GhostLock UAF, root or unlock operations.\nSigned with ephemeral CI debug key.\n' > report/SCOPE.txt
+          cp "$APK" report/HONOR70_C431_PROFILE_PREFLIGHT_V03.apk
+          printf 'FNE PI Gate v0.3: zero-permission C431 profile identity preflight + previous safe PI futex tests. Asset exact SHA audited; no user-data upload.\nNo active GhostLock waiters, UAF, root, kernel memory write, EDL or bootloader unlock.\nSigned with ephemeral CI debug key.\n' > report/SCOPE.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: HONOR70_FNE_PI_GATE_SAFE_ANDROID_APK
+          name: HONOR70_C431_PROFILE_PREFLIGHT_V03_ANDROID_APK
           path: report/
           retention-days: 30
