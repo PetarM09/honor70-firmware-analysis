@@ -1,0 +1,51 @@
+name: HONOR70 Extract Signed Firehose FirmwareWrite and FixGPT Operations
+on:
+  push:
+    paths:
+      - '.github/workflows/extract-firehose-firmwarewrite-fixgpt-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        loader: [ddr, lite]
+    steps:
+      - name: Fetch source-pinned original firmware handler decompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src report
+          gh run download 43138202304 --repo "$GITHUB_REPOSITORY" \
+            --name HONOR70_FIREHOSE_${{ matrix.loader }}_FIRMWAREWRITE_FIXGPT --dir src
+          test -s src/HONOR70_FIREHOSE_FIRMWAREWRITE_FIXGPT_CODE.txt
+      - name: Show direct EDL write and GPT repair code from both programmers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          f=Path('src/HONOR70_FIREHOSE_FIRMWAREWRITE_FIXGPT_CODE.txt')
+          raw=f.read_bytes();s=raw.decode('utf8','replace')
+          print('GHIDRA_EVIDENCE_SHA256',hashlib.sha256(raw).hexdigest())
+          blocks=re.split(r'(?=^===== REGISTERED_HANDLER )',s,flags=re.M)
+          for name,addr in [('firmwarewrite','14826a30'),('fixgpt','14827bcc'),
+                            ('firmwarewrite_lite','14826a24'),('fixgpt_lite','14827bc0'),
+                            ('program','14825908'),('program_lite','148258fc')]:
+            c=next((b for b in blocks if b.startswith('===== REGISTERED_HANDLER '+addr)),None)
+            if c is None:continue
+            Path('report/'+name+'.txt').write_text(c)
+            print('===== HANDLER',name,addr,'CHARS',len(c))
+            print(c[:24500])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "HONOR70_FIREHOSE_${{ matrix.loader }}_GPT_FIRMWAREWRITE_CODE"
+          path: report/*.txt
+          retention-days: 14
