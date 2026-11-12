@@ -16,6 +16,7 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 | Topic | Reproducible result |
 |---|---|
+| [**Exact retail C431 CVE-2026-43499 proxy-lock path + all 67 KM41 commands (2026-11-12)**](research/2026-11-12-exact-ghostlock-proxy-to-remove-waiter-and-km41-67-handlers.md) | Original European kernel contains a **verified ARM64 direct BL** `rt_mutex_start_proxy_lock` → `remove_waiter`; the target uses `current` via `sp_el0`, matching the official CVE mechanism. Exact source-level **candidate**, not working exploit or bootloader unlock. All **67 KM41 registered handlers** were decompiled; `0x208 set boot state` reports `is_unlocked` in *runtime Keymaster state*, and remains fuse-gated; `0x203` is the only registered direct `qsee_stor_write_sectors` caller, with indirect calls still possible. |
 | [**Matching original C431 kernel GhostLock signal; generated profile UNSAFE (2026-11-12)**](research/2026-11-12-exact-eea-ghostlock-matched-kernel-static-signal-profile-unsafe.md) | **Exact original retail EEA ARM64**: `remove_waiter` at `0xffffffc01037e350` reads `sp_el0`, and two task PI fields (`0x96C`/`0x990`) have machine-code support. **32 profile fields remain null**, and `kernel_phys_load=0xfffff000` originates from CI **host**, not phone. No safe executable profile, verified root or permanent unlock. [Kernel code check](../../actions/runs/43143727454), [two offsets check](../../actions/runs/43144056294). |
 | [**Latest GhostLock FNE + Samsung Keymaster vulnerability applicability (2026-11-12)**](research/2026-11-12-ghostlock-fne-kernel-mismatch-and-keymaster-cve-triage.md) | Real FNE-AN00 GhostLock **temporary root** source exists, but its baked 5.4.295 kernel profiles **do not match** stock FNE-NX9 C431 kernel `5.4.295-qgki-ga2d8945339ca`; executing mismatched offsets can corrupt RAM. CVE-2026-21085 is **Samsung** Keymaster, not proven in HONOR KM41. Neither proves **persistent unlock**. |
 | [**Retail vs Board KM41 + XBL `0x203` result verification (2026-11-12)**](research/2026-11-12-keymaster-board-eea-identical-xbl-203-reply-not-ignored.md) | All four original signed Keymaster secure handlers — `0x202`, `0x203`, fuse gate and milestone — have **matching normalized decompiled logic** in EEA and Board. In original retail XBL, **`0x203` QSEE transport and reply must both succeed**; otherwise it returns EFI `0x50`. Original ABL propagates nonzero setter status. Does **not** establish why the prior live phone wipe remained `LOCKED`. |
@@ -37,6 +38,10 @@ The `.github/workflows/` directory has reproducible offline extraction / Ghidra 
 
 ## Latest successfully completed GitHub analyses
 
+- [Original signed EEA full 67 registered Keymaster security handler map](../../actions/runs/43144963456)
+- [Original selected Keymaster 0x201 / 0x208 / 0x211 source decompilation](../../actions/runs/43145296648)
+- [Signed 67-handler source assertion: 0x208 is runtime boot state, not persistent unlock](../../actions/runs/43145878827)
+- [Exact stock EEA `rt_mutex_start_proxy_lock` → `remove_waiter` ARM64 BL confirmed](../../actions/runs/43145768042)
 - [Exact original EEA ARM64 remove_waiter with verified task_pi fields (2 exact offsets)](../../actions/runs/43144056294)
 - [SHA-pinned original retail 8.0.0.290 kernel symbol recovery and disassembly](../../actions/runs/43143727454)
 - [Exact C431 EEA GhostLock candidate: 32 null fields and host physical address rejected](../../actions/runs/43143170752)
