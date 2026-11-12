@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-11-12",
+  "source": "owner supplied non-root adb shell getprop output, copied text",
+  "phone_reported_properties": {
+    "ro.board.boardid": "8790",
+    "ro.board.hardware_version": "HN2FNEM03_VA",
+    "ro.board.platform": "lahaina",
+    "ro.boot.dtb_idx": "13",
+    "ro.boot.dtbo_idx": "18",
+    "ro.boot.hardware": "qcom",
+    "ro.boot.product.hardware.sku": "FNE-N29",
+    "ro.boot.product.vendor.sku": "yupik",
+    "ro.product.board": "lahaina",
+    "ro.product.hardwareversion": "HN2FNEM02",
+    "ro.revision": "0"
+  },
+  "uploaded_images": {
+    "vendor_boot_a": {
+      "sha256": "ca0ef34c45c55e91bd8da2bf02a0c5d9f359feb5e5d7873ee2aab1f61d903f46",
+      "reported_dtb_entry_index": 13,
+      "file_dtb_entry_index": 13,
+      "fdt_model": "Qualcomm Technologies, Inc. Yupik SoC",
+      "fdt_compatible": [
+        "qcom,yupik"
+      ],
+      "fdt_sha256": "bc692b769082c3db077864b82b6410b0d8ca93c0ce6985f9a5adedfb8b9854e9",
+      "fdt_length_bytes": 493552,
+      "file_offset_hex": "0x27290df"
+    },
+    "dtbo_a": {
+      "sha256": "ecb2e289d49b6e51f89c0e4a16233521bc87a38c16c36753faa8a4a2fddca328",
+      "reported_dtbo_entry_index": 18,
+      "file_dtbo_entry_index": 18,
+      "fdt_model": "Honor Technologies, Inc. FNE-NX9-781-208",
+      "fdt_compatible": [
+        "qcom,yupik-qrd",
+        "qcom,yupik",
+        "qcom,qrd"
+      ],
+      "fdt_sha256": "c278a52783cc0c4093f79772dd9f1036d38135098deb56159150da3f82c985cc",
+      "fdt_length_bytes": 318053,
+      "file_offset_hex": "0x5726f6",
+      "same_model_additional_dtbo_index": 25,
+      "same_model_additional_dtbo_sha256": "9945c3106547e82fb18cb91c9d09c2cbcee9a7ace7445cc0209aabb3beeb33a4"
+    }
+  },
+  "confidence": {
+    "android_boot_reported_indices": true,
+    "indices_refer_to_expected_entries_in_supplied_images": true,
+    "fdt_magic_and_per_entry_sha_rechecked_against_uploaded_bytes": true,
+    "uploaded_images_byte_identical_to_active_phone_partitions": false,
+    "bootloader_selected_and_applied_overlay_confirmed_by_live_fdt_read": false,
+    "kernel_phys_load_measured": false,
+    "runtime_kaslr_slide_measured": false,
+    "root_or_ghostlock_observed": false
+  },
+  "interpretation": "Android ro.boot values correspond by table index to vendor_boot Yupik DTB #13 and FNE-NX9-781-208 overlay #18 in the supplied images. They are not a measurement of the live merged FDT or kernel physical loading address."
+}
