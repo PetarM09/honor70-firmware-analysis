@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "profile_id": "honor70-fne-nx9-c431-8.0.0.290-5.4.295-ga2d8945339ca",
+  "profile_version": "0.2.0",
+  "status": "experimental_static_verified_non_executable",
+  "description": "C431 original signed kernel ABI evidence + confirmed upstream Linux 5.4.295 function-source equivalence; non-executable GhostLock research profile.",
+  "target": {
+    "manufacturer": "HONOR",
+    "model": "FNE-NX9",
+    "device": "HNFNE",
+    "region": "C431",
+    "magicos": "8.0.0.290",
+    "android_sdk": 34,
+    "android_major": 14,
+    "kernel_uname_release": "5.4.295-qgki-ga2d8945339ca"
+  },
+  "provenance": {
+    "boot_img_sha256": "5f27556ef26cf84f8ad6ff304a966c4b246091c01c89d8fd8f33e5526f7f3256",
+    "extracted_kernel_image_sha256": "bd8622b9448e435fb1459cefab59458988fc85c02a829cb5f47f9b03cc2c2ece",
+    "embedded_ikconfig_sha256": "99107cb0eb989d1381321f560664c78bf4b47ebdecb2cc33e9a7d430e1e973c4",
+    "do_futex_original_function_sha256": "dafc0e0138313ba88c2bbaad6fdd71509561325ce232bcbd19ea1e4f98a6108a",
+    "evidence_workflow_runs": [
+      43229427485,
+      43231676902,
+      43275022781,
+      43282279278,
+      43283106736,
+      43287116480,
+      43291260101
+    ]
+  },
+  "confirmed_binary_offsets_bytes": {
+    "rt_mutex_waiter.task": 48,
+    "rt_mutex_waiter.lock": 56,
+    "rt_mutex_waiter.prio": 64,
+    "rt_mutex_waiter.deadline": 72,
+    "task_struct.prio": 284,
+    "task_struct.dl.deadline": 1160,
+    "task_struct.pi_lock": 2412,
+    "task_struct.pi_waiters.rb_root": 2424,
+    "task_struct.pi_waiters.rb_leftmost": 2432,
+    "task_struct.pi_blocked_on": 2448
+  },
+  "confirmed_stack_evidence": {
+    "do_futex_waiter_pointer_expression": "x29 - 0xd0",
+    "do_futex_waiter_post_prologue_sp_expression": "sp + 0xf0",
+    "do_futex_futex_q_pointer_expression": "sp + 0x70",
+    "caller_function_va": "0xffffffc0103c84e4",
+    "futex_requeue_direct_proxy_call_site": "0xffffffc0103cb3f8",
+    "select_overlap_bytes_if_common_entry_sp": 80,
+    "select_overlap_is_dynamic_proof": false
+  },
+  "compiled_kernel_config": {
+    "CONFIG_FUTEX": "y",
+    "CONFIG_FUTEX_PI": "y",
+    "CONFIG_RT_MUTEXES": "y",
+    "CONFIG_RANDOMIZE_BASE": "y",
+    "CONFIG_VMAP_STACK": "y",
+    "CONFIG_CFI_CLANG": "y",
+    "CONFIG_CFI_PERMISSIVE": "n",
+    "CONFIG_STACKPROTECTOR_STRONG": "y",
+    "CONFIG_HARDENED_USERCOPY": "y",
+    "CONFIG_SECCOMP_FILTER": "y",
+    "CONFIG_SECURITY_SELINUX": "y"
+  },
+  "known_phone_results": {
+    "app_uncontended_pi_lock_unlock": "APP_PI_FUTEX_OK",
+    "app_invalid_same_address_cmp_requeue_pi": "REQUEUE_PI_EARLY_GUARD_OK",
+    "actual_vulnerable_rollback_observed": false,
+    "kernel_use_after_free_observed": false,
+    "temporary_root_observed": false,
+    "authenticated_bootloader_unlock_observed": false,
+    "profile_v01_identity_match": "PROFILE_MODEL_KERNEL_ANDROID_MATCH",
+    "phone_build_incremental": "8.0.0.290C431E4R3P1"
+  },
+  "unresolved_required_fields": {
+    "kernel_phys_load": null,
+    "actual_runtime_kernel_slide": null,
+    "exact_cred_layout": null,
+    "exact_task_cred_fields": null,
+    "exact_task_seccomp_fields": null,
+    "exact_futex_q_complete_layout": null,
+    "actual_select_user_controlled_stack_write": null,
+    "reliable_dangling_waiter_lifetime": null,
+    "proven_kernel_memory_primitive": null,
+    "controlled_privilege_transition": null
+  },
+  "checks": {
+    "model_kernel_android_identity_supported": true,
+    "signed_kernel_source_provenance_supported": true,
+    "exploit_loader_enabled": false,
+    "active_uaf_trigger_enabled": false,
+    "kernel_memory_write_enabled": false,
+    "root_installation_enabled": false,
+    "persistent_unlock_enabled": false,
+    "full_abi_established": false,
+    "run_ready_ghostlock_profile": false
+  },
+  "scope_note": "Evidence-only updated v0.2 research profile. The verified v0.1 Android profile identity preflight already passed. Do not import this as exploit offsets; no valid phone physical base, live UAF, kernel write primitive or elevated shell.",
+  "external_linux_reference": {
+    "release_tag": "linux-5.4.295",
+    "archive_name": "linux-5.4.295.tar.xz",
+    "archive_sha256": "c48158f7735668aac78b9d74bb3616f57a4ea0816ca09f7db83f7834d705b6a9",
+    "kernel_makefile_version": "5.4.295",
+    "kernel_makefile_extraversion": "",
+    "source_comparison_workflow_run": 43299436582,
+    "compared_against_honor_fennie_gpl_base": "5.4.242",
+    "same_source_bodies": [
+      "futex_requeue",
+      "futex_wait_requeue_pi",
+      "remove_waiter",
+      "rt_mutex_start_proxy_lock"
+    ],
+    "full_file_byte_comparison": {
+      "kernel/futex.c": false,
+      "kernel/locking/rtmutex.c": false,
+      "kernel/locking/rtmutex_common.h": true,
+      "include/linux/sched.h": false,
+      "Makefile": false
+    },
+    "core_source_5_4_295_is_signed_c431_source": false,
+    "safe_to_transfer_struct_ABI_from_generic_source": false,
+    "generic_task_sched_vendor_features_missing": [
+      "ANDROID_KABI_RESERVE",
+      "CONFIG_HN_VIP_THREAD",
+      "CONFIG_HONOR_SCHED_VIP"
+    ],
+    "qualification": "Function text equality does not establish structure layout, compiler LTO decisions, C431 trusted boot image or runtime kernel memory geometry."
+  },
+  "confirmed_compiled_oem_config": {
+    "CONFIG_HN_VIP_THREAD": "y",
+    "CONFIG_HN_RTG": "y",
+    "CONFIG_HN_QOS_THREAD": "y",
+    "CONFIG_HN_RTG_FRAME": "y",
+    "CONFIG_ANDROID_VENDOR_HOOKS": "y",
+    "CONFIG_HONOR_SCHED_VIP": "n",
+    "CONFIG_LTO_CLANG": "y",
+    "CONFIG_THINLTO": "y",
+    "CONFIG_CFI_CLANG": "y",
+    "source": "original signed C431 embedded IKCONFIG",
+    "evidence_workflow_run": 43299954797
+  }
+}
