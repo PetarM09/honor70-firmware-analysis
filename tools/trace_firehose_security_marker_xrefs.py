@@ -47,12 +47,17 @@ def main():
  addr_targets={int(x["virtual_address"],16):(term,x["file_offset"])
                for term,v in found.items() for x in v if x["virtual_address"] is not None}
  pages={v & ~0xfff for v in addr_targets}
+ print("DEBUG_ELF_SEGMENTS",json.dumps(segments))
+ print("DEBUG_TARGETS",json.dumps({hex(k):v for k,v in addr_targets.items()}))
  md=Cs(CS_ARCH_ARM64,CS_MODE_ARM);md.detail=True
  crossrefs={term:[] for term in TARGETS}
  for seg in segments:
   if not seg["flags"]&1:continue
   code=b[seg["off"]:seg["off"]+seg["filesz"]]
   ins=list(md.disasm(code,seg["vaddr"]))
+  print("DEBUG_CODE_SEGMENT",hex(seg["vaddr"]),"FLAGS",seg["flags"],"LEN_BYTES",len(code),"DECODED",len(ins),"FIRST",[(hex(x.address),x.mnemonic,x.op_str) for x in ins[:5]])
+  near=[(hex(x.address),x.mnemonic,x.op_str) for x in ins if 0x1482bd00<=x.address<=0x1482bd3c]
+  if near:print("DEBUG_KNOWN_RPMB_REFERENCE",json.dumps(near))
   for i,cur in enumerate(ins):
    if cur.mnemonic!="adrp" or len(cur.operands)<2:continue
    if cur.operands[0].type!=ARM64_OP_REG or cur.operands[1].type!=ARM64_OP_IMM:continue
